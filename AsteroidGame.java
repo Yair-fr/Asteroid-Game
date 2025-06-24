@@ -316,10 +316,10 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             currentY += 40; // Space for small current pattern text
             drawCenteredString(g2d, "Current: " + player1ShipPattern, new Font("Arial", Font.PLAIN, 16), currentY);
 
-            currentY += 60; // Space before controls
+            currentY += 60;
             g2d.drawString("Player 1 Controls:", WIDTH / 2 - 100, currentY);
 
-            currentY += 40; // Space for control buttons
+            currentY += 40;
             drawButton(g2d, "Shoot: " + KeyEvent.getKeyText(player1ShootKey), WIDTH / 2 - 100, currentY, 150, 40, () -> {
                 String input = JOptionPane.showInputDialog(this, "Press key for Player 1 Shoot:");
                 if (input != null && !input.isEmpty() && input.length() == 1) {
@@ -601,8 +601,14 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 }
             }
 
-            // New button to view all high scores on game over screen
-            drawButton(g2d, "View All Scores", WIDTH / 2, HEIGHT / 2 + 200, 250, 40, this::showAllHighScores);
+            // Moved "View All Scores" button to the bottom left
+            drawButton(g2d, "View All Scores", WIDTH / 4, HEIGHT - 100, 250, 40, this::showAllHighScores);
+
+            // Moved "Back to Main Menu" button to the bottom right
+            drawButton(g2d, "Back to Main Menu", 3 * WIDTH / 4, HEIGHT - 100, 250, 50, () -> {
+                initGame(); // Re-initialize state, but don't spawn asteroids
+                state = GameState.START;
+            });
 
 
             g2d.setFont(new Font("Arial", Font.PLAIN, 24));
