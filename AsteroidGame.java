@@ -498,14 +498,9 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 int msgX = bullets1X + (barWidth - fm.stringWidth(msg)) / 2;
                 int msgY = uiBottomY - barOffset + barHeight / 2 + fm.getAscent() / 2; // Centered vertically in bar
                 g2d.drawString(msg, msgX, msgY);
-            } else if (currentBullets1 < MAX_BULLETS) { // Passive reload message
-                 g2d.setColor(Color.MAGENTA); // Another color for incremental reload
-                 String msg = "Reloading (" + currentBullets1 + "/"+MAX_BULLETS+")...";
-                 FontMetrics fm = g2d.getFontMetrics();
-                 int msgX = bullets1X + (barWidth - fm.stringWidth(msg)) / 2;
-                 int msgY = uiBottomY - barOffset + barHeight / 2 + fm.getAscent() / 2;
-                 g2d.drawString(msg, msgX, msgY);
             }
+            // Removed the incremental reload message (purple message) for Player 1
+
 
             // UI for Player 2 in multiplayer mode
             if (state == GameState.MULTIPLAYER_PLAYING) {
@@ -568,14 +563,8 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                     int msgX = bullets2X + (barWidth - fm.stringWidth(msg)) / 2;
                     int msgY = uiBottomY - barOffset + barHeight / 2 + fm.getAscent() / 2;
                     g2d.drawString(msg, msgX, msgY);
-                } else if (currentBullets2 < MAX_BULLETS) { // Passive reload message
-                    g2d.setColor(Color.MAGENTA);
-                    String msg = "Reloading (" + currentBullets2 + "/"+MAX_BULLETS+")...";
-                    FontMetrics fm = g2d.getFontMetrics();
-                    int msgX = bullets2X + (barWidth - fm.stringWidth(msg)) / 2;
-                    int msgY = uiBottomY - barOffset + barHeight / 2 + fm.getAscent() / 2;
-                    g2d.drawString(msg, msgX, msgY);
                 }
+                // Removed the incremental reload message (purple message) for Player 2
             }
 
 
