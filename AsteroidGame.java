@@ -20,7 +20,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     private static final long BULLET_COOLDOWN = 200; // 0.2 seconds delay between shots, for single press to register
     private static final int MAX_BULLETS = 5; // Max bullets in magazine
     private static final long RELOAD_FULL_DURATION = 5000; // 5 seconds to reload when empty
-    private static final long RELOAD_INCREMENTAL_DURATION = 2000; // 1 second per bullet for passive reload
+    private static final long RELOAD_INCREMENTAL_DURATION = 2000; // 2 second per bullet for passive reload
 
     // Hyperspace constants
     private static final long HYPER_ACTIVE_DURATION = 2000; // 2 seconds of hyper-speed
@@ -240,7 +240,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             drawCenteredString(g2d, "ASTEROID GAME", new Font("Arial", Font.BOLD, 60), HEIGHT / 3 - 50);
 
             // Single Player button
-            drawButton(g2d, "Single Player", WIDTH / 2, HEIGHT / 2 - 40, 200, 50, () -> {
+            drawButton(g2d, "Single Player", WIDTH / 2, HEIGHT / 2 - 40, 350, 50, () -> {
                 tempUserNameInput = JOptionPane.showInputDialog(this, "Enter your username:", userName1);
                 if (tempUserNameInput != null && !tempUserNameInput.trim().isEmpty()) {
                     userName1 = tempUserNameInput.trim();
@@ -254,12 +254,12 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             });
 
             // Multiplayer (Customize Names) button
-            drawButton(g2d, "Multiplayer (Customize Names)", WIDTH / 2, HEIGHT / 2 + 30, 270, 50, () -> {
+            drawButton(g2d, "Multiplayer (Customize Names)", WIDTH / 2, HEIGHT / 2 + 30, 350, 50, () -> {
                 state = GameState.MULTIPLAYER_SETUP_NAMES;
             });
 
             // New: Multiplayer (Quick Play) button - directly to QR display
-            drawButton(g2d, "Multiplayer (Quick Play)", WIDTH / 2, HEIGHT / 2 + 100, 250, 50, () -> {
+            drawButton(g2d, "Multiplayer (Quick Play)", WIDTH / 2, HEIGHT / 2 + 100, 350, 50, () -> {
                 // Usernames remain default ("Player 1", "Player 2") unless previously changed
                 player1ShipPattern = Ship.Pattern.ZEBRA; // Default for quick play
                 player2ShipPattern = Ship.Pattern.DOTTED; // Default for quick play
@@ -267,18 +267,13 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 state = GameState.MULTIPLAYER_DISPLAY_QRS;
             });
 
-
-            g2d.setFont(new Font("Arial", Font.PLAIN, 18));
-            drawCenteredString(g2d, "Controls:", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 200); // Adjusted Y
-            drawCenteredString(g2d, "UP Arrow: Thrust", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 225);
-            drawCenteredString(g2d, "LEFT/RIGHT Arrows: Rotate", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 250);
-            drawCenteredString(g2d, "SPACE: Fire", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 275);
-            drawCenteredString(g2d, "H: Hyper-Speed", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 300);
+            // The "HOW TO PLAY" box drawing has been removed.
+            // drawHowToPlayBox(g2d, 490, 150, 280, 250); // Adjusted dimensions for better fit
 
             // Display High Score on Start screen
             g2d.setFont(new Font("Arial", Font.PLAIN, 24));
-            drawCenteredString(g2d, "High Scores:", new Font("Arial", Font.BOLD, 28), HEIGHT / 2 + 340); // Adjusted Y
-            int scoreY = HEIGHT / 2 + 370; // Adjusted Y
+            drawCenteredString(g2d, "High Scores:", new Font("Arial", Font.BOLD, 28), HEIGHT / 2 + 340);
+            int scoreY = HEIGHT / 2 + 370;
             for (int i = 0; i < Math.min(highScores.size(), 5); i++) { // Display top 5 scores
                 HighScoreEntry entry = highScores.get(i);
                 drawCenteredString(g2d, (i + 1) + ". " + entry.getUserName() + ": " + entry.getScore(),
@@ -643,7 +638,6 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     }
 
     private final java.util.Map<Rectangle, Runnable> buttonActions = new java.util.HashMap<>();
-
 
     /**
      * Draws a simple 'X' button for closing the application in the top-right corner
