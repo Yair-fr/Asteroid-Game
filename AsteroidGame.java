@@ -45,6 +45,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     boolean shootRequested2, hyperspaceRequested2;
 
     int score = 0; // Single player score, or combined if desired later
+    private int difficultyLevel = 0; // Starts at 0 for "extra easy"
     int lives1, lives2; // Lives for each player
     GameState state = GameState.START;
     long lastShotTime1 = 0;
@@ -134,6 +135,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         asteroids.clear();
         effects.clear();
         score = 0; // Reset score (will be for current player in single, or combined if needed)
+        difficultyLevel = 0; // Reset difficulty for a new game
         lives1 = INITIAL_LIVES;
         lives2 = INITIAL_LIVES;
 
@@ -188,8 +190,9 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
      * Spawns the initial set of asteroids for a new game.
      */
     private void spawnInitialAsteroids() {
+        // Initial asteroids spawned at difficulty 0 (extra easy)
         for(int i = 0; i < 3; i++) {
-            asteroids.add(new Asteroid(random, 0)); // Initial asteroids with score 0
+            asteroids.add(new Asteroid(random, difficultyLevel));
         }
     }
 
@@ -212,7 +215,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     @Override
     public void paintComponent(Graphics g) {
         super.paintComponent(g);
-        Graphics2D g2d = (Graphics2D) g;
+        Graphics2D g2d = (Graphics2d) g;
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
         // Save the original transform
@@ -267,97 +270,115 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 state = GameState.MULTIPLAYER_DISPLAY_QRS;
             });
 
-            // The "HOW TO PLAY" box drawing has been removed.
-            // drawHowToPlayBox(g2d, 490, 150, 280, 250); // Adjusted dimensions for better fit
-
-            // Display High Score on Start screen
+            // Display High Score on Start screen - now only top 3
             g2d.setFont(new Font("Arial", Font.PLAIN, 24));
             drawCenteredString(g2d, "High Scores:", new Font("Arial", Font.BOLD, 28), HEIGHT / 2 + 340);
             int scoreY = HEIGHT / 2 + 370;
-            for (int i = 0; i < Math.min(highScores.size(), 5); i++) { // Display top 5 scores
+            for (int i = 0; i < Math.min(highScores.size(), 3); i++) { // Display top 3 scores
                 HighScoreEntry entry = highScores.get(i);
                 drawCenteredString(g2d, (i + 1) + ". " + entry.getUserName() + ": " + entry.getScore(),
                                    new Font("Arial", Font.PLAIN, 20), scoreY + (i * 25));
             }
+
+            // New button to view all high scores
+            drawButton(g2d, "View All Scores", WIDTH / 2, HEIGHT / 2 + 200, 250, 40, this::showAllHighScores);
 
 
             g2d.setFont(new Font("Arial", Font.PLAIN, 16));
             drawCenteredString(g2d, "Yair FR©", new Font("Arial", Font.PLAIN, 16), HEIGHT - 20); // Copyright at bottom middle
 
         } else if (state == GameState.MULTIPLAYER_SETUP_NAMES) {
-            drawCenteredString(g2d, "Multiplayer Setup", new Font("Arial", Font.BOLD, 48), HEIGHT / 4 - 80);
+            int currentY = 70; // Start Y for "Multiplayer Setup" title
+            drawCenteredString(g2d, "Multiplayer Setup", new Font("Arial", Font.BOLD, 48), currentY);
 
-            // Player 1 Name
-            g2d.setFont(new Font("Arial", Font.PLAIN, 24));
-            drawCenteredString(g2d, "Player 1 Name: " + userName1, new Font("Arial", Font.PLAIN, 24), HEIGHT / 4 - 20);
-            drawButton(g2d, "Edit Player 1 Name", WIDTH / 2, HEIGHT / 4 + 20, 200, 40, () -> {
+            currentY += 80; // Space after title
+            // Player 1 Section
+            g2d.setFont(new Font("Arial", Font.PLAIN, 22)); // Slightly smaller font for labels
+            drawCenteredString(g2d, "Player 1 Name: " + userName1, new Font("Arial", Font.PLAIN, 24), currentY);
+
+            currentY += 40; // Space for button
+            drawButton(g2d, "Edit Player 1 Name", WIDTH / 2, currentY, 200, 40, () -> {
                 String input = JOptionPane.showInputDialog(this, "Enter Player 1 username:", userName1);
                 if (input != null && !input.trim().isEmpty()) {
                     userName1 = input.trim();
                 }
             });
 
-            // Player 1 Ship Pattern Selection
-            g2d.drawString("Player 1 Ship:", WIDTH / 2 - 100, HEIGHT / 4 + 80);
-            drawButton(g2d, "Default", WIDTH / 2 - 150, HEIGHT / 4 + 120, 120, 40, () -> player1ShipPattern = Ship.Pattern.NONE);
-            drawButton(g2d, "Zebra", WIDTH / 2, HEIGHT / 4 + 120, 120, 40, () -> player1ShipPattern = Ship.Pattern.ZEBRA);
-            drawButton(g2d, "Dotted", WIDTH / 2 + 150, HEIGHT / 4 + 120, 120, 40, () -> player1ShipPattern = Ship.Pattern.DOTTED);
-            drawCenteredString(g2d, "Current: " + player1ShipPattern, new Font("Arial", Font.PLAIN, 16), HEIGHT / 4 + 160);
+            currentY += 60; // Space after button
+            g2d.drawString("Player 1 Ship:", WIDTH / 2 - 100, currentY); // Left align this text
 
-            // Player 1 Control Keys
-            g2d.drawString("Player 1 Controls:", WIDTH / 2 - 100, HEIGHT / 2 + 20);
-            drawButton(g2d, "Shoot: " + KeyEvent.getKeyText(player1ShootKey), WIDTH / 2 - 100, HEIGHT / 2 + 60, 150, 40, () -> {
+            currentY += 40; // Space for buttons
+            drawButton(g2d, "Default", WIDTH / 2 - 150, currentY, 120, 40, () -> player1ShipPattern = Ship.Pattern.NONE);
+            drawButton(g2d, "Zebra", WIDTH / 2, currentY, 120, 40, () -> player1ShipPattern = Ship.Pattern.ZEBRA);
+            drawButton(g2d, "Dotted", WIDTH / 2 + 150, currentY, 120, 40, () -> player1ShipPattern = Ship.Pattern.DOTTED);
+
+            currentY += 40; // Space for small current pattern text
+            drawCenteredString(g2d, "Current: " + player1ShipPattern, new Font("Arial", Font.PLAIN, 16), currentY);
+
+            currentY += 60; // Space before controls
+            g2d.drawString("Player 1 Controls:", WIDTH / 2 - 100, currentY);
+
+            currentY += 40; // Space for control buttons
+            drawButton(g2d, "Shoot: " + KeyEvent.getKeyText(player1ShootKey), WIDTH / 2 - 100, currentY, 150, 40, () -> {
                 String input = JOptionPane.showInputDialog(this, "Press key for Player 1 Shoot:");
-                if (input != null && !input.isEmpty() && input.length() == 1) { // Ensure only one character
+                if (input != null && !input.isEmpty() && input.length() == 1) {
                     player1ShootKey = input.toUpperCase().charAt(0);
                 }
             });
-            drawButton(g2d, "Hyper: " + KeyEvent.getKeyText(player1HyperspaceKey), WIDTH / 2 + 100, HEIGHT / 2 + 60, 150, 40, () -> {
+            drawButton(g2d, "Hyper: " + KeyEvent.getKeyText(player1HyperspaceKey), WIDTH / 2 + 100, currentY, 150, 40, () -> {
                 String input = JOptionPane.showInputDialog(this, "Press key for Player 1 Hyperspace:");
-                if (input != null && !input.isEmpty() && input.length() == 1) { // Ensure only one character
+                if (input != null && !input.isEmpty() && input.length() == 1) {
                     player1HyperspaceKey = input.toUpperCase().charAt(0);
                 }
             });
 
+            // Player 2 Section
+            currentY += 70; // Larger space before Player 2 section
+            g2d.setFont(new Font("Arial", Font.PLAIN, 22)); // Slightly smaller font for labels
+            drawCenteredString(g2d, "Player 2 Name: " + userName2, new Font("Arial", Font.PLAIN, 24), currentY);
 
-            // Player 2 Name
-            g2d.setFont(new Font("Arial", Font.PLAIN, 24));
-            drawCenteredString(g2d, "Player 2 Name: " + userName2, new Font("Arial", Font.PLAIN, 24), HEIGHT / 2 + 120);
-            drawButton(g2d, "Edit Player 2 Name", WIDTH / 2, HEIGHT / 2 + 160, 200, 40, () -> {
+            currentY += 40;
+            drawButton(g2d, "Edit Player 2 Name", WIDTH / 2, currentY, 200, 40, () -> {
                 String input = JOptionPane.showInputDialog(this, "Enter Player 2 username:", userName2);
                 if (input != null && !input.trim().isEmpty()) {
                     userName2 = input.trim();
                 }
             });
 
-            // Player 2 Ship Pattern Selection
-            g2d.drawString("Player 2 Ship:", WIDTH / 2 - 100, HEIGHT / 2 + 220);
-            drawButton(g2d, "Default", WIDTH / 2 - 150, HEIGHT / 2 + 260, 120, 40, () -> player2ShipPattern = Ship.Pattern.NONE);
-            drawButton(g2d, "Zebra", WIDTH / 2, HEIGHT / 2 + 260, 120, 40, () -> player2ShipPattern = Ship.Pattern.ZEBRA);
-            drawButton(g2d, "Dotted", WIDTH / 2 + 150, HEIGHT / 2 + 260, 120, 40, () -> player2ShipPattern = Ship.Pattern.DOTTED);
-            drawCenteredString(g2d, "Current: " + player2ShipPattern, new Font("Arial", Font.PLAIN, 16), HEIGHT / 2 + 300);
+            currentY += 60;
+            g2d.drawString("Player 2 Ship:", WIDTH / 2 - 100, currentY);
 
-            // Player 2 Control Keys
-            g2d.drawString("Player 2 Controls:", WIDTH / 2 - 100, HEIGHT - 100);
-            drawButton(g2d, "Shoot: " + KeyEvent.getKeyText(player2ShootKey), WIDTH / 2 - 100, HEIGHT - 60, 150, 40, () -> {
+            currentY += 40;
+            drawButton(g2d, "Default", WIDTH / 2 - 150, currentY, 120, 40, () -> player2ShipPattern = Ship.Pattern.NONE);
+            drawButton(g2d, "Zebra", WIDTH / 2, currentY, 120, 40, () -> player2ShipPattern = Ship.Pattern.ZEBRA);
+            drawButton(g2d, "Dotted", WIDTH / 2 + 150, currentY, 120, 40, () -> player2ShipPattern = Ship.Pattern.DOTTED);
+
+            currentY += 40;
+            drawCenteredString(g2d, "Current: " + player2ShipPattern, new Font("Arial", Font.PLAIN, 16), currentY);
+
+            currentY += 60;
+            g2d.drawString("Player 2 Controls:", WIDTH / 2 - 100, currentY);
+
+            currentY += 40;
+            drawButton(g2d, "Shoot: " + KeyEvent.getKeyText(player2ShootKey), WIDTH / 2 - 100, currentY, 150, 40, () -> {
                 String input = JOptionPane.showInputDialog(this, "Press key for Player 2 Shoot:");
-                if (input != null && !input.isEmpty() && input.length() == 1) { // Ensure only one character
+                if (input != null && !input.isEmpty() && input.length() == 1) {
                     player2ShootKey = input.toUpperCase().charAt(0);
                 }
             });
-            drawButton(g2d, "Hyper: " + KeyEvent.getKeyText(player2HyperspaceKey), WIDTH / 2 + 100, HEIGHT - 60, 150, 40, () -> {
+            drawButton(g2d, "Hyper: " + KeyEvent.getKeyText(player2HyperspaceKey), WIDTH / 2 + 100, currentY, 150, 40, () -> {
                 String input = JOptionPane.showInputDialog(this, "Press key for Player 2 Hyperspace:");
-                if (input != null && !input.isEmpty() && input.length() == 1) { // Ensure only one character
+                if (input != null && !input.isEmpty() && input.length() == 1) {
                     player2HyperspaceKey = input.toUpperCase().charAt(0);
                 }
             });
 
-
-            drawButton(g2d, "Generate Controllers", WIDTH - 150, HEIGHT - 30, 250, 60, () -> { // Moved to bottom right
-                initGame(); // Initialize game with current settings before displaying QRs
+            currentY = HEIGHT - 80; // Reposition bottom buttons to be above the copyright
+            drawButton(g2d, "Generate Controllers", WIDTH / 2 + 100, currentY, 250, 60, () -> { // Adjusted position
+                initGame();
                 state = GameState.MULTIPLAYER_DISPLAY_QRS;
             });
-            drawButton(g2d, "Back to Main Menu", WIDTH / 2 - 250, HEIGHT - 30, 200, 40, () -> state = GameState.START); // Adjusted position
+            drawButton(g2d, "Back to Main Menu", WIDTH / 2 - 150, currentY, 200, 40, () -> state = GameState.START); // Adjusted position
 
         } else if (state == GameState.MULTIPLAYER_DISPLAY_QRS) {
             drawCenteredString(g2d, "Multiplayer Controllers (Local Demo)", new Font("Arial", Font.BOLD, 40), HEIGHT / 8);
@@ -567,17 +588,21 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             drawCenteredString(g2d, "GAME OVER", new Font("Arial", Font.BOLD, 48), HEIGHT / 3);
             drawCenteredString(g2d, "Final Score: " + score, new Font("Arial", Font.PLAIN, 24), HEIGHT / 2);
 
-            // Display High Score
+            // Display High Score - now only top 3
             g2d.setFont(new Font("Arial", Font.PLAIN, 24));
             if (!highScores.isEmpty()) {
                 drawCenteredString(g2d, "High Scores:", new Font("Arial", Font.BOLD, 28), HEIGHT / 2 + 50);
                 int scoreY = HEIGHT / 2 + 80;
-                for (int i = 0; i < Math.min(highScores.size(), 5); i++) { // Display top 5 scores
+                for (int i = 0; i < Math.min(highScores.size(), 3); i++) { // Display top 3 scores
                     HighScoreEntry entry = highScores.get(i);
                     drawCenteredString(g2d, (i + 1) + ". " + entry.getUserName() + ": " + entry.getScore(),
                                        new Font("Arial", Font.PLAIN, 20), scoreY + (i * 25));
                 }
             }
+
+            // New button to view all high scores on game over screen
+            drawButton(g2d, "View All Scores", WIDTH / 2, HEIGHT / 2 + 200, 250, 40, this::showAllHighScores);
+
 
             g2d.setFont(new Font("Arial", Font.PLAIN, 24));
             drawCenteredString(g2d, "Press ENTER to Restart", new Font("Arial", Font.PLAIN, 24), HEIGHT - 50);
@@ -827,8 +852,17 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             }
             removeOffscreen();
 
-            if (random.nextInt(100) < (2 + score / 200)) {
-                asteroids.add(new Asteroid(random, score));
+            // Check and update difficulty level based on score
+            int newDifficultyThreshold = score / 50; // Each 50 points is a new difficulty level
+            if (newDifficultyThreshold > difficultyLevel) {
+                difficultyLevel = newDifficultyThreshold;
+                System.out.println("Difficulty increased to level: " + difficultyLevel); // For debugging
+            }
+
+            // Asteroid spawning logic: more frequent with higher difficultyLevel
+            // Base chance 5%, plus 2% for each difficulty level
+            if (random.nextInt(100) < (5 + difficultyLevel * 2)) {
+                asteroids.add(new Asteroid(random, difficultyLevel));
             }
 
             // Check for game over (multiplayer condition)
@@ -978,10 +1012,11 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 if (bullet.getBounds().intersects(asteroid.getBounds())) {
                     bulletIterator.remove();
                     effects.add(new PopEffect(asteroid.x, asteroid.y, random));
-                    score += 10;
+                    // Score based on asteroid size
+                    score += getScoreForAsteroid(asteroid.size);
                     if (asteroid.size > Asteroid.MIN_SPLIT_SIZE) {
                         for (int i = 0; i < 2; i++) {
-                            newAsteroids.add(new Asteroid(asteroid.x, asteroid.y, asteroid.size / 2, random));
+                            newAsteroids.add(new Asteroid(asteroid.x, asteroid.y, asteroid.size / 2, random, difficultyLevel));
                         }
                     }
                     asteroidIterator.remove();
@@ -1023,10 +1058,11 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 if (bullet.getBounds().intersects(asteroid.getBounds())) {
                     bulletIterator.remove();
                     effects.add(new PopEffect(asteroid.x, asteroid.y, random));
-                    score += 10; // Combined score for now
+                    // Score based on asteroid size for multiplayer as well
+                    score += getScoreForAsteroid(asteroid.size);
                     if (asteroid.size > Asteroid.MIN_SPLIT_SIZE) {
                         for (int i = 0; i < 2; i++) {
-                            newAsteroids.add(new Asteroid(asteroid.x, asteroid.y, asteroid.size / 2, random));
+                            newAsteroids.add(new Asteroid(asteroid.x, asteroid.y, asteroid.size / 2, random, difficultyLevel));
                         }
                     }
                     asteroidIterator.remove();
@@ -1082,6 +1118,22 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         }
     }
 
+    /**
+     * Calculates the score awarded for destroying an asteroid based on its size.
+     * Smaller asteroids give more points.
+     * @param asteroidSize The size of the asteroid.
+     * @return The score awarded.
+     */
+    private int getScoreForAsteroid(int asteroidSize) {
+        if (asteroidSize <= Asteroid.MIN_SPLIT_SIZE) { // Smallest asteroids
+            return 30;
+        } else if (asteroidSize <= Asteroid.BASE_SIZE * 1.5) { // Medium asteroids
+            return 20;
+        } else { // Large asteroids
+            return 10;
+        }
+    }
+
 
     void removeOffscreen() {
         bullets.removeIf(b -> !b.onScreen(WIDTH, HEIGHT));
@@ -1110,9 +1162,11 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             highScores.add(new HighScoreEntry(username, score));
         }
         Collections.sort(highScores, Comparator.comparingInt(HighScoreEntry::getScore).reversed());
-        // Keep only the top 5 scores
-        if (highScores.size() > 5) {
-            highScores = highScores.subList(0, 5);
+        // Keep only the top 5 scores (or whatever limit you want for saving)
+        // Here we keep all for the popup, but only show top 5/3 on screen.
+        // For actual saving, you might want to limit here too if file size is a concern.
+        if (highScores.size() > 20) { // Example: keep top 20 scores in file
+            highScores = highScores.subList(0, 20);
         }
         saveHighScores();
     }
@@ -1132,6 +1186,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     /**
      * Loads the high score list from a file. If no file exists, initializes with an empty list.
      */
+    @SuppressWarnings("unchecked") // Suppress unchecked cast warning for readObject
     private void loadHighScores() {
         try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(HIGHSCORE_FILE))) {
             highScores = (List<HighScoreEntry>) ois.readObject();
@@ -1144,6 +1199,28 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             System.err.println("Error loading high scores: " + e.getMessage());
             highScores = new ArrayList<>(); // Fallback to empty list
         }
+    }
+
+    /**
+     * Displays a popup window showing all high scores.
+     */
+    private void showAllHighScores() {
+        StringBuilder sb = new StringBuilder("All High Scores:\n\n");
+        if (highScores.isEmpty()) {
+            sb.append("No high scores recorded yet. Play a game!");
+        } else {
+            for (int i = 0; i < highScores.size(); i++) {
+                HighScoreEntry entry = highScores.get(i);
+                sb.append(String.format("%d. %s: %d\n", (i + 1), entry.getUserName(), entry.getScore()));
+            }
+        }
+        // Use a JTextArea inside a JScrollPane for potentially long lists
+        JTextArea textArea = new JTextArea(sb.toString());
+        textArea.setEditable(false);
+        JScrollPane scrollPane = new JScrollPane(textArea);
+        scrollPane.setPreferredSize(new Dimension(300, 400)); // Set preferred size for the scroll pane
+
+        JOptionPane.showMessageDialog(this, scrollPane, "All High Scores", JOptionPane.INFORMATION_MESSAGE);
     }
 
     /**
@@ -1489,19 +1566,21 @@ class Asteroid {
     int size; // Radius of the asteroid
     Color color; // Color of the asteroid
     private final Random random;
-    private final int MAX_SPEED = 3; // Maximum base speed for asteroids
-    private final int BASE_SIZE = 15; // Base radius for new asteroids
+    private final int MAX_BASE_SPEED = 3; // Maximum base speed for asteroids
+    public static final int BASE_SIZE = 15; // Base radius for new asteroids
     static final int MIN_SPLIT_SIZE = 10; // Minimum size for an asteroid to split into smaller ones
+    private final int difficultyLevel; // Store the difficulty level at which this asteroid was spawned
 
     /**
      * Constructor for initial asteroids, spawning from screen edges.
      * @param random The Random instance from the game.
-     * @param score The current game score, used to influence speed.
+     * @param currentDifficulty The current difficulty level of the game.
      */
-    Asteroid(Random random, int score) {
+    Asteroid(Random random, int currentDifficulty) {
         this.random = random;
+        this.difficultyLevel = currentDifficulty; // Store the current difficulty
         size = BASE_SIZE + random.nextInt(15); // Random size between 15 and 29
-        setRandomSpawnLocation(AsteroidGame.WIDTH, AsteroidGame.HEIGHT, score);
+        setRandomSpawnLocation(AsteroidGame.WIDTH, AsteroidGame.HEIGHT);
         // Random gray-ish color for variety
         this.color = new Color(random.nextInt(156) + 100, random.nextInt(156) + 100, random.nextInt(156) + 100);
     }
@@ -1512,55 +1591,83 @@ class Asteroid {
      * @param startY Y position of the parent asteroid.
      * @param newSize New size of the split asteroid.
      * @param random The Random instance from the game.
+     * @param currentDifficulty The current difficulty level of the game.
      */
-    Asteroid(double startX, double startY, int newSize, Random random) {
+    Asteroid(double startX, double startY, int newSize, Random random, int currentDifficulty) {
         this.random = random;
+        this.difficultyLevel = currentDifficulty; // Store the current difficulty
         this.x = startX;
         this.y = startY;
         this.size = newSize;
 
-        // Give split asteroids a random initial velocity in a new direction
-        double angle = random.nextDouble() * 2 * Math.PI; // Random angle in radians
-        double speed = 2 + random.nextDouble(); // Slightly faster than initial asteroids
-        this.dx = Math.cos(angle) * speed;
-        this.dy = Math.sin(angle) * speed;
+        double sizeSpeedMultiplier = getSizeSpeedMultiplier(this.size);
+        double baseSplitSpeed = 2 + random.nextDouble();
+        double effectiveSplitSpeed = baseSplitSpeed * sizeSpeedMultiplier;
+
+        // Apply difficulty level to split asteroid speed as well
+        effectiveSplitSpeed *= (1 + (double) this.difficultyLevel / 20); // Each difficulty level adds 5% speed to split asteroids
+
+        double angle = random.nextDouble() * 2 * Math.PI;
+        this.dx = Math.cos(angle) * effectiveSplitSpeed;
+        this.dy = Math.sin(angle) * effectiveSplitSpeed;
         this.color = new Color(random.nextInt(156) + 100, random.nextInt(156) + 100, random.nextInt(156) + 100);
     }
 
     /**
+     * Helper method to get speed multiplier based on asteroid size.
+     * Larger asteroids are slower, smaller ones are faster.
+     * @param asteroidSize The current size of the asteroid.
+     * @return A double representing the speed multiplier.
+     */
+    private double getSizeSpeedMultiplier(int asteroidSize) {
+        if (asteroidSize >= 20) { // Large asteroid (e.g., 20-29)
+            return 0.7; // Slower
+        } else if (asteroidSize >= 10) { // Medium asteroid (e.g., 10-19)
+            return 1.2; // Faster
+        } else { // Small asteroid (e.g., < 10)
+            return 1.5; // Fastest
+        }
+    }
+
+
+    /**
      * Sets a random spawn location for an asteroid from one of the four screen edges.
+     * Uses the internally stored difficultyLevel for speed calculation.
      * @param screenWidth Width of the game screen.
      * @param screenHeight Height of the game screen.
-     * @param score Current game score, influences speed.
      */
-    private void setRandomSpawnLocation(int screenWidth, int screenHeight, int score) {
+    private void setRandomSpawnLocation(int screenWidth, int screenHeight) {
         int edge = random.nextInt(4); // 0: top, 1: right, 2: bottom, 3: left
-        double speedFactor = 1 + (double) score / 500; // Speed increases with score
+        double gameSpeedFactor = 1 + (double) this.difficultyLevel / 20; // Overall speed increases by 5% per difficulty level
+        double sizeSpeedMultiplier = getSizeSpeedMultiplier(this.size);
+
+        // Combine overall game difficulty with asteroid size characteristics
+        double effectiveSpeed = MAX_BASE_SPEED * gameSpeedFactor * sizeSpeedMultiplier;
 
         switch (edge) {
             case 0: // Top edge
                 x = random.nextInt(screenWidth);
                 y = -size; // Start just off-screen
-                dx = (random.nextDouble() * 2 - 1) * MAX_SPEED * speedFactor; // Random horizontal speed
-                dy = (0.5 + random.nextDouble() * 0.5) * MAX_SPEED * speedFactor; // Always move downwards
+                dx = (random.nextDouble() * 2 - 1) * effectiveSpeed; // Random horizontal speed
+                dy = (0.5 + random.nextDouble() * 0.5) * effectiveSpeed; // Always move downwards
                 break;
             case 1: // Right edge
                 x = screenWidth + size; // Start just off-screen
                 y = random.nextInt(screenHeight);
-                dx = (-0.5 - random.nextDouble() * 0.5) * MAX_SPEED * speedFactor; // Always move leftwards
-                dy = (random.nextDouble() * 2 - 1) * MAX_SPEED * speedFactor; // Random vertical speed
+                dx = (-0.5 - random.nextDouble() * 0.5) * effectiveSpeed; // Always move leftwards
+                dy = (random.nextDouble() * 2 - 1) * effectiveSpeed; // Random vertical speed
                 break;
             case 2: // Bottom edge
                 x = random.nextInt(screenWidth);
                 y = screenHeight + size; // Start just off-screen
-                dx = (random.nextDouble() * 2 - 1) * MAX_SPEED * speedFactor;
-                dy = (-0.5 - random.nextDouble() * 0.5) * MAX_SPEED * speedFactor; // Always move upwards
+                dx = (random.nextDouble() * 2 - 1) * effectiveSpeed;
+                dy = (-0.5 - random.nextDouble() * 0.5) * effectiveSpeed; // Always move upwards
                 break;
             case 3: // Left edge
                 x = -size; // Start just off-screen
                 y = random.nextInt(screenHeight);
-                dx = (0.5 + random.nextDouble() * 0.5) * MAX_SPEED * speedFactor; // Always move rightwards
-                dy = (random.nextDouble() * 2 - 1) * MAX_SPEED * speedFactor;
+                dx = (0.5 + random.nextDouble() * 0.5) * effectiveSpeed; // Always move rightwards
+                dy = (random.nextDouble() * 2 - 1) * effectiveSpeed;
                 break;
         }
     }
