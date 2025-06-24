@@ -45,7 +45,8 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     boolean shootRequested2, hyperspaceRequested2;
 
     int score = 0; // Single player score, or combined if desired later
-    private int difficultyLevel = 0; // Starts at 0 for "extra easy"
+    private int difficultyLevel = 0; // Starts at 0 for "extra easy" (dynamically updated in game)
+    private int initialDifficulty = 1; // User selected initial difficulty (1 to 10)
     int lives1, lives2; // Lives for each player
     GameState state = GameState.START;
     long lastShotTime1 = 0;
@@ -135,7 +136,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         asteroids.clear();
         effects.clear();
         score = 0; // Reset score (will be for current player in single, or combined if needed)
-        difficultyLevel = 0; // Reset difficulty for a new game
+        difficultyLevel = initialDifficulty; // Initialize difficulty with user selection
         lives1 = INITIAL_LIVES;
         lives2 = INITIAL_LIVES;
 
@@ -155,10 +156,6 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         hyperSpeedActive1 = false;
         hyperspaceActivationTime1 = 0;
         hyperFuelRefillTime1 = System.currentTimeMillis(); // Hyper-fuel starts full
-
-        hyperSpeedActive2 = false;
-        hyperspaceActivationTime2 = 0;
-        hyperFuelRefillTime2 = System.currentTimeMillis(); // Hyper-fuel starts full
 
         up1 = left1 = right1 = false; // Movement flags
         up2 = left2 = right2 = false;
@@ -190,7 +187,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
      * Spawns the initial set of asteroids for a new game.
      */
     private void spawnInitialAsteroids() {
-        // Initial asteroids spawned at difficulty 0 (extra easy)
+        // Initial asteroids spawned at the current difficultyLevel
         for(int i = 0; i < 3; i++) {
             asteroids.add(new Asteroid(random, difficultyLevel));
         }
@@ -215,7 +212,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     @Override
     public void paintComponent(Graphics g) {
         super.paintComponent(g);
-        Graphics2D g2d = (Graphics2D) g; // Corrected from Graphics2d to Graphics2D
+        Graphics2D g2d = (Graphics2D) g;
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
         // Save the original transform
@@ -270,6 +267,10 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 state = GameState.MULTIPLAYER_DISPLAY_QRS;
             });
 
+            // Button to select difficulty
+            drawButton(g2d, "Difficulty: " + initialDifficulty + " (Click to Change)", WIDTH / 2, HEIGHT / 2 + 170, 350, 40, this::showDifficultySelection);
+
+
             // Display High Score on Start screen - now only top 3
             g2d.setFont(new Font("Arial", Font.PLAIN, 24));
             drawCenteredString(g2d, "High Scores:", new Font("Arial", Font.BOLD, 28), HEIGHT / 2 + 340);
@@ -281,7 +282,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             }
 
             // New button to view all high scores
-            drawButton(g2d, "View All Scores", WIDTH / 2, HEIGHT / 2 + 200, 250, 40, this::showAllHighScores);
+            drawButton(g2d, "View All Scores", WIDTH / 2, HEIGHT / 2 + 230, 250, 40, this::showAllHighScores);
 
 
             g2d.setFont(new Font("Arial", Font.PLAIN, 16));
@@ -725,6 +726,40 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         }
     }
 
+    /**
+     * Displays a JOptionPane for the user to select a difficulty level.
+     */
+    private void showDifficultySelection() {
+        String[] difficulties = {"1 (Very Easy)", "2 (Easy)", "3", "4", "5 (Normal)", "6", "7", "8", "9", "10 (Hard)"};
+        // Pre-select the current difficulty level
+        int initialSelection = initialDifficulty - 1;
+        if (initialSelection < 0) initialSelection = 0;
+        if (initialSelection >= difficulties.length) initialSelection = difficulties.length - 1;
+
+        String selectedValue = (String) JOptionPane.showInputDialog(
+                this,
+                "Select Difficulty Level:",
+                "Difficulty Selection",
+                JOptionPane.QUESTION_MESSAGE,
+                null,
+                difficulties,
+                difficulties[initialSelection]
+        );
+
+        if (selectedValue != null) {
+            try {
+                // Extract the number from the selected string (e.g., "1 (Very Easy)" -> "1")
+                initialDifficulty = Integer.parseInt(selectedValue.split(" ")[0]);
+                // Ensure difficulty is within bounds
+                if (initialDifficulty < 1) initialDifficulty = 1;
+                if (initialDifficulty > 10) initialDifficulty = 10;
+            } catch (NumberFormatException ex) {
+                System.err.println("Invalid difficulty selection: " + selectedValue);
+                // Keep the current difficulty if parsing fails
+            }
+        }
+    }
+
 
     /**
      * This method is called repeatedly by the Swing Timer to update game logic.
@@ -853,15 +888,27 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             removeOffscreen();
 
             // Check and update difficulty level based on score
-            int newDifficultyThreshold = score / 50; // Each 50 points is a new difficulty level
-            if (newDifficultyThreshold > difficultyLevel) {
-                difficultyLevel = newDifficultyThreshold;
+            // The score-based difficulty progression applies *on top of* the initialDifficulty
+            // Example: if initialDifficulty is 1, and score is 50, dynamic_level becomes 1 + (50/50) = 2.
+            // If initialDifficulty is 5, and score is 50, dynamic_level becomes 5 + (50/50) = 6.
+            int dynamicDifficultyIncrease = score / 50; // Every 50 points, increase dynamic difficulty by 1
+            int newDifficulty = initialDifficulty + dynamicDifficultyIncrease;
+
+            // Cap the dynamic difficulty level if it exceeds a reasonable maximum
+            if (newDifficulty > 20) newDifficulty = 20; // Cap at 20 for extreme difficulty
+
+            if (newDifficulty > difficultyLevel) {
+                difficultyLevel = newDifficulty;
                 System.out.println("Difficulty increased to level: " + difficultyLevel); // For debugging
             }
 
+
             // Asteroid spawning logic: more frequent with higher difficultyLevel
-            // Base chance 5%, plus 2% for each difficulty level
-            if (random.nextInt(100) < (5 + difficultyLevel * 2)) {
+            // The base chance and scaling are adjusted for a smoother curve starting easier.
+            // At difficulty 1, this is 2 + 1*1 = 3% chance.
+            // At difficulty 10, this is 2 + 10*1 = 12% chance.
+            // The multiplier 1.0 (instead of 2.0 previously) makes the increase less steep.
+            if (random.nextInt(100) < (2 + difficultyLevel * 1)) {
                 asteroids.add(new Asteroid(random, difficultyLevel));
             }
 
@@ -1605,7 +1652,11 @@ class Asteroid {
         double effectiveSplitSpeed = baseSplitSpeed * sizeSpeedMultiplier;
 
         // Apply difficulty level to split asteroid speed as well
-        effectiveSplitSpeed *= (1 + (double) this.difficultyLevel / 20); // Each difficulty level adds 5% speed to split asteroids
+        // At difficulty 1, this is 1 + (1 / 20) = 1.05.
+        // We want it to be slower at level 1, so adjust the base multiplier.
+        effectiveSplitSpeed *= (0.5 + (double) this.difficultyLevel * 0.05); // Each difficulty level adds 5% speed to split asteroids
+        // For level 1: 0.5 + 0.05 = 0.55 (55% of baseSplitSpeed)
+        // For level 10: 0.5 + 0.5 = 1.0 (100% of baseSplitSpeed)
 
         double angle = random.nextDouble() * 2 * Math.PI;
         this.dx = Math.cos(angle) * effectiveSplitSpeed;
@@ -1638,7 +1689,10 @@ class Asteroid {
      */
     private void setRandomSpawnLocation(int screenWidth, int screenHeight) {
         int edge = random.nextInt(4); // 0: top, 1: right, 2: bottom, 3: left
-        double gameSpeedFactor = 1 + (double) this.difficultyLevel / 20; // Overall speed increases by 5% per difficulty level
+        // Adjusted gameSpeedFactor for a gentler start.
+        // At difficulty 1: 0.5 + 1 * 0.05 = 0.55 (55% of MAX_BASE_SPEED)
+        // At difficulty 10: 0.5 + 10 * 0.05 = 1.0 (100% of MAX_BASE_SPEED)
+        double gameSpeedFactor = 0.5 + (double) this.difficultyLevel * 0.05;
         double sizeSpeedMultiplier = getSizeSpeedMultiplier(this.size);
 
         // Combine overall game difficulty with asteroid size characteristics
