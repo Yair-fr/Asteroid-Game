@@ -17,14 +17,15 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     public static final int WIDTH = 800;
     public static final int HEIGHT = 600;
     private static final int INITIAL_LIVES = 3;
-    private static final long BULLET_COOLDOWN = 1000; // 1 second delay between shots
+    private static final long BULLET_COOLDOWN = 200; // 0.2 seconds delay between shots, for single press to register
     private static final int MAX_BULLETS = 5; // Max bullets in magazine
-    private static final long RELOAD_DURATION = 5000; // 5 seconds to reload
+    private static final long RELOAD_FULL_DURATION = 5000; // 5 seconds to reload when empty
+    private static final long RELOAD_INCREMENTAL_DURATION = 2000; // 1 second per bullet for passive reload
 
     // Hyperspace constants
     private static final long HYPER_ACTIVE_DURATION = 2000; // 2 seconds of hyper-speed
     private static final long HYPER_RECHARGE_DURATION = 10000; // 10 seconds to recharge hyper-fuel
-    private static final double HYPER_SPEED_MULTIPLIER = 2.0; // Changed from 4.0 to 2.0 as requested
+    private static final double HYPER_SPEED_MULTIPLIER = 2.0;
 
     // Starfield constants for the start screen
     private static final int MAX_STARS = 150; // Number of stars in the background
@@ -32,32 +33,68 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
 
     // Game state variables
     Timer timer;
-    Ship ship;
+    Ship ship1, ship2; // Two ships for multiplayer
     ArrayList<Bullet> bullets = new ArrayList<>();
     ArrayList<Asteroid> asteroids = new ArrayList<>();
     ArrayList<PopEffect> effects = new ArrayList<>();
-    boolean up, left, right, space, hyperspacePressed;
-    int score = 0;
-    int lives = INITIAL_LIVES;
+    boolean up1, left1, right1; // Player 1 movement controls
+    boolean up2, left2, right2; // Player 2 movement controls
+
+    // Single-press action flags (consumed after one tick)
+    boolean shootRequested1, hyperspaceRequested1;
+    boolean shootRequested2, hyperspaceRequested2;
+
+    int score = 0; // Single player score, or combined if desired later
+    int lives1, lives2; // Lives for each player
     GameState state = GameState.START;
-    long lastShotTime = 0;
+    long lastShotTime1 = 0;
+    long lastShotTime2 = 0;
 
-    // Bullet magazine and reload state
-    private int currentBullets = MAX_BULLETS;
-    private boolean reloading = false;
-    private long reloadStartTime = 0;
+    // Bullet magazine and reload state for each player
+    private int currentBullets1 = MAX_BULLETS;
+    private boolean reloading1 = false;
+    private long reloadStartTime1 = 0;
+    private long lastReloadTickTime1 = 0; // For incremental reload
 
-    // Hyperspace state
-    private boolean hyperSpeedActive = false;
-    private long hyperspaceActivationTime = 0;
-    private long hyperFuelRefillTime = 0; // Time when hyper-fuel will be ready again
+    private int currentBullets2 = MAX_BULLETS;
+    private boolean reloading2 = false;
+    private long reloadStartTime2 = 0;
+    private long lastReloadTickTime2 = 0; // For incremental reload
+
+    // Hyperspace state for each player
+    private boolean hyperSpeedActive1 = false;
+    private long hyperspaceActivationTime1 = 0;
+    private long hyperFuelRefillTime1 = 0; // When hyper-fuel will be full again
+
+    private boolean hyperSpeedActive2 = false;
+    private long hyperspaceActivationTime2 = 0;
+    private long hyperFuelRefillTime2 = 0;
 
     // High Score management
-    private List<HighScoreEntry> highScores = new ArrayList<>(); // Changed to a List
-    private static final String HIGHSCORE_FILE = "highscores.dat"; // Changed filename to reflect list
+    private List<HighScoreEntry> highScores = new ArrayList<>();
+    private static final String HIGHSCORE_FILE = "highscores.dat";
 
-    // Username input for new high scores
-    private String userName = "Player"; // Default username
+    // Username input for new high scores and multiplayer names
+    private String userName1 = "Player 1";
+    private String userName2 = "Player 2";
+    private String tempUserNameInput = ""; // Used for JOptionPane input
+
+    // Ship pattern configuration
+    private Ship.Pattern player1ShipPattern = Ship.Pattern.NONE; // Default pattern
+    private Ship.Pattern player2ShipPattern = Ship.Pattern.NONE; // Default pattern
+
+    // Configurable keys for multiplayer
+    private int player1ShootKey = KeyEvent.VK_SPACE;
+    private int player1HyperspaceKey = KeyEvent.VK_H;
+    private int player2ShootKey = KeyEvent.VK_C;
+    private int player2HyperspaceKey = KeyEvent.VK_V;
+
+    // Flags to track if shoot/hyperspace keys are currently held down (to prevent repeated triggers from keyPressed)
+    private boolean player1ShootKeyHeld = false;
+    private boolean player1HyperspaceKeyHeld = false;
+    private boolean player2ShootKeyHeld = false;
+    private boolean player2HyperspaceKeyHeld = false;
+
 
     // Random generator for the game
     private final Random random = new Random();
@@ -87,38 +124,73 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
 
     /**
      * Initializes or resets the game state for a new game.
+     * This method resets common game elements, but does not start a game or spawn asteroids.
      */
     private void initGame() {
-        ship = new Ship(WIDTH / 2, HEIGHT / 2);
+        ship1 = new Ship(WIDTH / 4, HEIGHT / 2, player1ShipPattern); // Ship 1 with chosen pattern
+        ship2 = new Ship(3 * WIDTH / 4, HEIGHT / 2, player2ShipPattern); // Ship 2 with chosen pattern
+
         bullets.clear();
         asteroids.clear();
         effects.clear();
-        score = 0;
-        lives = INITIAL_LIVES;
-        lastShotTime = 0;
-        currentBullets = MAX_BULLETS; // Reset bullets
-        reloading = false; // Reset reload state
-        reloadStartTime = 0; // Reset reload timer
+        score = 0; // Reset score (will be for current player in single, or combined if needed)
+        lives1 = INITIAL_LIVES;
+        lives2 = INITIAL_LIVES;
 
-        // Reset hyperspace state
-        hyperSpeedActive = false;
-        hyperspaceActivationTime = 0;
-        hyperFuelRefillTime = System.currentTimeMillis(); // Hyper-fuel is full at start
+        lastShotTime1 = 0;
+        lastShotTime2 = 0;
 
-        up = left = right = space = hyperspacePressed = false;
+        currentBullets1 = MAX_BULLETS;
+        reloading1 = false;
+        reloadStartTime1 = 0;
+        lastReloadTickTime1 = System.currentTimeMillis(); // Initialize for passive reload
+
+        currentBullets2 = MAX_BULLETS;
+        reloading2 = false;
+        reloadStartTime2 = 0;
+        lastReloadTickTime2 = System.currentTimeMillis(); // Initialize for passive reload
+
+        hyperSpeedActive1 = false;
+        hyperspaceActivationTime1 = 0;
+        hyperFuelRefillTime1 = System.currentTimeMillis(); // Hyper-fuel starts full
+
+        hyperSpeedActive2 = false;
+        hyperspaceActivationTime2 = 0;
+        hyperFuelRefillTime2 = System.currentTimeMillis(); // Hyper-fuel starts full
+
+        up1 = left1 = right1 = false; // Movement flags
+        up2 = left2 = right2 = false;
+
+        shootRequested1 = hyperspaceRequested1 = false; // Action flags
+        shootRequested2 = hyperspaceRequested2 = false;
+
+        // Reset key held flags
+        player1ShootKeyHeld = false;
+        player1HyperspaceKeyHeld = false;
+        player2ShootKeyHeld = false;
+        player2HyperspaceKeyHeld = false;
 
         // Load high score list at game initialization
         loadHighScores();
-        // If high scores were loaded, set username to the top scorer's name
+        // If high scores were loaded, set username to the top scorer's name for default prompt
         if (!highScores.isEmpty()) {
-            userName = highScores.get(0).getUserName();
+            tempUserNameInput = highScores.get(0).getUserName();
+        } else {
+            tempUserNameInput = "Player"; // Default if no scores
         }
 
         // Populate stars for the start screen background
         stars.clear();
         populateStars(WIDTH, HEIGHT, MAX_STARS);
+    }
 
-        // Asteroids are spawned only when game state becomes PLAYING
+    /**
+     * Spawns the initial set of asteroids for a new game.
+     */
+    private void spawnInitialAsteroids() {
+        for(int i = 0; i < 3; i++) {
+            asteroids.add(new Asteroid(random, 0)); // Initial asteroids with score 0
+        }
     }
 
     /**
@@ -156,33 +228,57 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         // Apply scaling
         g2d.scale(scale, scale);
 
-        // Now draw all game elements using the game's internal WIDTH/HEIGHT (800x600)
-        // The Graphics2D context will automatically scale and translate them
+        // Always draw moving star background in all states
+        for (Star star : stars) {
+            star.draw(g2d);
+        }
 
         if (state == GameState.START) {
-            // Draw moving star background
-            for (Star star : stars) {
-                star.draw(g2d);
-            }
 
             g2d.setColor(Color.WHITE);
             g2d.setFont(new Font("Arial", Font.BOLD, 60)); // Larger title
-            drawCenteredString(g2d, "ASTEROID GAME", new Font("Arial", Font.BOLD, 60), HEIGHT / 3);
+            drawCenteredString(g2d, "ASTEROID GAME", new Font("Arial", Font.BOLD, 60), HEIGHT / 3 - 50);
 
-            g2d.setFont(new Font("Arial", Font.PLAIN, 24));
-            drawCenteredString(g2d, "Press ENTER to Start", new Font("Arial", Font.PLAIN, 24), HEIGHT / 2);
+            // Single Player button
+            drawButton(g2d, "Single Player", WIDTH / 2, HEIGHT / 2 - 40, 200, 50, () -> {
+                tempUserNameInput = JOptionPane.showInputDialog(this, "Enter your username:", userName1);
+                if (tempUserNameInput != null && !tempUserNameInput.trim().isEmpty()) {
+                    userName1 = tempUserNameInput.trim();
+                } else {
+                    userName1 = "Player 1";
+                }
+                player1ShipPattern = Ship.Pattern.NONE; // Default for single player
+                initGame(); // Initialize common game elements
+                spawnInitialAsteroids(); // Spawn asteroids specific to playing
+                state = GameState.PLAYING_SINGLE;
+            });
+
+            // Multiplayer (Customize Names) button
+            drawButton(g2d, "Multiplayer (Customize Names)", WIDTH / 2, HEIGHT / 2 + 30, 270, 50, () -> {
+                state = GameState.MULTIPLAYER_SETUP_NAMES;
+            });
+
+            // New: Multiplayer (Quick Play) button - directly to QR display
+            drawButton(g2d, "Multiplayer (Quick Play)", WIDTH / 2, HEIGHT / 2 + 100, 250, 50, () -> {
+                // Usernames remain default ("Player 1", "Player 2") unless previously changed
+                player1ShipPattern = Ship.Pattern.ZEBRA; // Default for quick play
+                player2ShipPattern = Ship.Pattern.DOTTED; // Default for quick play
+                initGame(); // Make sure to init for quick play to apply patterns
+                state = GameState.MULTIPLAYER_DISPLAY_QRS;
+            });
+
 
             g2d.setFont(new Font("Arial", Font.PLAIN, 18));
-            drawCenteredString(g2d, "Controls:", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 50);
-            drawCenteredString(g2d, "UP Arrow: Thrust", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 75);
-            drawCenteredString(g2d, "LEFT/RIGHT Arrows: Rotate", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 100);
-            drawCenteredString(g2d, "SPACE: Fire", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 125);
-            drawCenteredString(g2d, "H: Hyper-Speed", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 150);
+            drawCenteredString(g2d, "Controls:", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 200); // Adjusted Y
+            drawCenteredString(g2d, "UP Arrow: Thrust", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 225);
+            drawCenteredString(g2d, "LEFT/RIGHT Arrows: Rotate", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 250);
+            drawCenteredString(g2d, "SPACE: Fire", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 275);
+            drawCenteredString(g2d, "H: Hyper-Speed", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 300);
 
             // Display High Score on Start screen
             g2d.setFont(new Font("Arial", Font.PLAIN, 24));
-            drawCenteredString(g2d, "High Scores:", new Font("Arial", Font.BOLD, 28), HEIGHT / 2 + 200);
-            int scoreY = HEIGHT / 2 + 230;
+            drawCenteredString(g2d, "High Scores:", new Font("Arial", Font.BOLD, 28), HEIGHT / 2 + 340); // Adjusted Y
+            int scoreY = HEIGHT / 2 + 370; // Adjusted Y
             for (int i = 0; i < Math.min(highScores.size(), 5); i++) { // Display top 5 scores
                 HighScoreEntry entry = highScores.get(i);
                 drawCenteredString(g2d, (i + 1) + ". " + entry.getUserName() + ": " + entry.getScore(),
@@ -193,70 +289,293 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             g2d.setFont(new Font("Arial", Font.PLAIN, 16));
             drawCenteredString(g2d, "Yair FR©", new Font("Arial", Font.PLAIN, 16), HEIGHT - 20); // Copyright at bottom middle
 
-        } else if (state == GameState.PLAYING) {
-            ship.draw(g2d);
+        } else if (state == GameState.MULTIPLAYER_SETUP_NAMES) {
+            drawCenteredString(g2d, "Multiplayer Setup", new Font("Arial", Font.BOLD, 48), HEIGHT / 4 - 80);
+
+            // Player 1 Name
+            g2d.setFont(new Font("Arial", Font.PLAIN, 24));
+            drawCenteredString(g2d, "Player 1 Name: " + userName1, new Font("Arial", Font.PLAIN, 24), HEIGHT / 4 - 20);
+            drawButton(g2d, "Edit Player 1 Name", WIDTH / 2, HEIGHT / 4 + 20, 200, 40, () -> {
+                String input = JOptionPane.showInputDialog(this, "Enter Player 1 username:", userName1);
+                if (input != null && !input.trim().isEmpty()) {
+                    userName1 = input.trim();
+                }
+            });
+
+            // Player 1 Ship Pattern Selection
+            g2d.drawString("Player 1 Ship:", WIDTH / 2 - 100, HEIGHT / 4 + 80);
+            drawButton(g2d, "Default", WIDTH / 2 - 150, HEIGHT / 4 + 120, 120, 40, () -> player1ShipPattern = Ship.Pattern.NONE);
+            drawButton(g2d, "Zebra", WIDTH / 2, HEIGHT / 4 + 120, 120, 40, () -> player1ShipPattern = Ship.Pattern.ZEBRA);
+            drawButton(g2d, "Dotted", WIDTH / 2 + 150, HEIGHT / 4 + 120, 120, 40, () -> player1ShipPattern = Ship.Pattern.DOTTED);
+            drawCenteredString(g2d, "Current: " + player1ShipPattern, new Font("Arial", Font.PLAIN, 16), HEIGHT / 4 + 160);
+
+            // Player 1 Control Keys
+            g2d.drawString("Player 1 Controls:", WIDTH / 2 - 100, HEIGHT / 2 + 20);
+            drawButton(g2d, "Shoot: " + KeyEvent.getKeyText(player1ShootKey), WIDTH / 2 - 100, HEIGHT / 2 + 60, 150, 40, () -> {
+                String input = JOptionPane.showInputDialog(this, "Press key for Player 1 Shoot:");
+                if (input != null && !input.isEmpty() && input.length() == 1) { // Ensure only one character
+                    player1ShootKey = input.toUpperCase().charAt(0);
+                }
+            });
+            drawButton(g2d, "Hyper: " + KeyEvent.getKeyText(player1HyperspaceKey), WIDTH / 2 + 100, HEIGHT / 2 + 60, 150, 40, () -> {
+                String input = JOptionPane.showInputDialog(this, "Press key for Player 1 Hyperspace:");
+                if (input != null && !input.isEmpty() && input.length() == 1) { // Ensure only one character
+                    player1HyperspaceKey = input.toUpperCase().charAt(0);
+                }
+            });
+
+
+            // Player 2 Name
+            g2d.setFont(new Font("Arial", Font.PLAIN, 24));
+            drawCenteredString(g2d, "Player 2 Name: " + userName2, new Font("Arial", Font.PLAIN, 24), HEIGHT / 2 + 120);
+            drawButton(g2d, "Edit Player 2 Name", WIDTH / 2, HEIGHT / 2 + 160, 200, 40, () -> {
+                String input = JOptionPane.showInputDialog(this, "Enter Player 2 username:", userName2);
+                if (input != null && !input.trim().isEmpty()) {
+                    userName2 = input.trim();
+                }
+            });
+
+            // Player 2 Ship Pattern Selection
+            g2d.drawString("Player 2 Ship:", WIDTH / 2 - 100, HEIGHT / 2 + 220);
+            drawButton(g2d, "Default", WIDTH / 2 - 150, HEIGHT / 2 + 260, 120, 40, () -> player2ShipPattern = Ship.Pattern.NONE);
+            drawButton(g2d, "Zebra", WIDTH / 2, HEIGHT / 2 + 260, 120, 40, () -> player2ShipPattern = Ship.Pattern.ZEBRA);
+            drawButton(g2d, "Dotted", WIDTH / 2 + 150, HEIGHT / 2 + 260, 120, 40, () -> player2ShipPattern = Ship.Pattern.DOTTED);
+            drawCenteredString(g2d, "Current: " + player2ShipPattern, new Font("Arial", Font.PLAIN, 16), HEIGHT / 2 + 300);
+
+            // Player 2 Control Keys
+            g2d.drawString("Player 2 Controls:", WIDTH / 2 - 100, HEIGHT - 100);
+            drawButton(g2d, "Shoot: " + KeyEvent.getKeyText(player2ShootKey), WIDTH / 2 - 100, HEIGHT - 60, 150, 40, () -> {
+                String input = JOptionPane.showInputDialog(this, "Press key for Player 2 Shoot:");
+                if (input != null && !input.isEmpty() && input.length() == 1) { // Ensure only one character
+                    player2ShootKey = input.toUpperCase().charAt(0);
+                }
+            });
+            drawButton(g2d, "Hyper: " + KeyEvent.getKeyText(player2HyperspaceKey), WIDTH / 2 + 100, HEIGHT - 60, 150, 40, () -> {
+                String input = JOptionPane.showInputDialog(this, "Press key for Player 2 Hyperspace:");
+                if (input != null && !input.isEmpty() && input.length() == 1) { // Ensure only one character
+                    player2HyperspaceKey = input.toUpperCase().charAt(0);
+                }
+            });
+
+
+            drawButton(g2d, "Generate Controllers", WIDTH - 150, HEIGHT - 30, 250, 60, () -> { // Moved to bottom right
+                initGame(); // Initialize game with current settings before displaying QRs
+                state = GameState.MULTIPLAYER_DISPLAY_QRS;
+            });
+            drawButton(g2d, "Back to Main Menu", WIDTH / 2 - 250, HEIGHT - 30, 200, 40, () -> state = GameState.START); // Adjusted position
+
+        } else if (state == GameState.MULTIPLAYER_DISPLAY_QRS) {
+            drawCenteredString(g2d, "Multiplayer Controllers (Local Demo)", new Font("Arial", Font.BOLD, 40), HEIGHT / 8);
+            g2d.setFont(new Font("Arial", Font.PLAIN, 18));
+            drawCenteredString(g2d, "In a real game, you would scan these QR codes on your phones.", new Font("Arial", Font.PLAIN, 18), HEIGHT / 8 + 40);
+            drawCenteredString(g2d, "For this demo, players use the same keyboard with different keys:", new Font("Arial", Font.PLAIN, 18), HEIGHT / 8 + 65);
+
+
+            // Player 1 QR Code and Controls
+            g2d.setColor(Color.WHITE);
+            g2d.setFont(new Font("Arial", Font.BOLD, 24));
+            g2d.drawString(userName1 + "'s Controller", WIDTH / 4 - 100, HEIGHT / 3 + 20);
+            drawQRCodePlaceholder(g2d, WIDTH / 4 - 50, HEIGHT / 3 + 50, 100, "Player 1 URL");
+            g2d.setFont(new Font("Arial", Font.PLAIN, 18));
+            g2d.drawString("Controls: ARROW Keys", WIDTH / 4 - 100, HEIGHT / 3 + 170);
+            g2d.drawString("Shoot: " + KeyEvent.getKeyText(player1ShootKey) + ", Hyper: " + KeyEvent.getKeyText(player1HyperspaceKey), WIDTH / 4 - 100, HEIGHT / 3 + 195);
+
+
+            // Player 2 QR Code and Controls
+            g2d.setColor(Color.WHITE);
+            g2d.setFont(new Font("Arial", Font.BOLD, 24));
+            g2d.drawString(userName2 + "'s Controller", 3 * WIDTH / 4 - 100, HEIGHT / 3 + 20);
+            drawQRCodePlaceholder(g2d, 3 * WIDTH / 4 - 50, HEIGHT / 3 + 50, 100, "Player 2 URL");
+            g2d.setFont(new Font("Arial", Font.PLAIN, 18));
+            g2d.drawString("Controls: W, A, D", 3 * WIDTH / 4 - 100, HEIGHT / 3 + 170);
+            g2d.drawString("Shoot: " + KeyEvent.getKeyText(player2ShootKey) + ", Hyper: " + KeyEvent.getKeyText(player2HyperspaceKey), 3 * WIDTH / 4 - 100, HEIGHT / 3 + 195);
+
+            drawButton(g2d, "Start Multiplayer Game", WIDTH / 2, HEIGHT - 100, 300, 60, () -> {
+                initGame(); // Initialize common game elements for a new game session
+                spawnInitialAsteroids(); // Spawn asteroids now that game is starting
+                state = GameState.MULTIPLAYER_PLAYING;
+            });
+            drawButton(g2d, "Back to Setup", WIDTH / 2, HEIGHT - 30, 200, 40, () -> state = GameState.MULTIPLAYER_SETUP_NAMES);
+
+        } else if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING) {
+            ship1.draw(g2d);
+            if (state == GameState.MULTIPLAYER_PLAYING) {
+                ship2.draw(g2d);
+            }
+
             for (Bullet b : bullets) b.draw(g2d);
             for (Asteroid a : asteroids) a.draw(g2d);
             for (PopEffect p : effects) p.draw(g2d);
 
-            // UI elements like score and lives (top left)
+            // UI elements for Player 1 (top left)
             g2d.setColor(Color.WHITE);
             g2d.setFont(new Font("Arial", Font.PLAIN, 18));
             g2d.drawString("Score: " + score, 10, 20);
-            g2d.drawString("Lives: " + lives, 10, 40);
+            g2d.drawString("Lives: " + lives1, 10, 40);
 
-            // Positioned at bottom middle
+            // UI elements for Player 2 (top right) in multiplayer mode
+            if (state == GameState.MULTIPLAYER_PLAYING) {
+                g2d.drawString("Lives (" + userName2 + "): " + lives2, WIDTH - 150, 40);
+            }
+
+            // Positioned at bottom middle for both players
             int uiBottomY = HEIGHT - 20; // Slightly above bottom edge
             int barWidth = 100;
             int barHeight = 10;
-            int spacing = 40; // Space between fuel bar and bullet count
+            int labelOffset = 45; // Distance from bottom for labels
+            int barOffset = 30;   // Distance from bottom for bars
 
-            // Calculate starting X for the centered block of UI elements
-            int totalUIElementsWidth = barWidth + spacing + g2d.getFontMetrics(new Font("Arial", Font.PLAIN, 18)).stringWidth("Bullets: " + MAX_BULLETS + "/" + MAX_BULLETS);
-            int startX = (WIDTH - totalUIElementsWidth) / 2;
+            int player1SectionWidth = barWidth * 2 + 50; // Width for fuel bar + bullet bar + gap
+            int player2SectionWidth = barWidth * 2 + 50;
+            int totalUIWidth = player1SectionWidth;
+            if (state == GameState.MULTIPLAYER_PLAYING) {
+                totalUIWidth += player2SectionWidth + 80; // Add space between player sections
+            }
+            int startX = (WIDTH - totalUIWidth) / 2;
 
-            int fuelX = startX;
-            int bulletsX = fuelX + barWidth + spacing;
+            int fuel1X = startX;
+            int bullets1X = fuel1X + barWidth + 50;
 
-
-            // Draw hyper-fuel bar
+            // Draw hyper-fuel bar for Player 1
             g2d.setColor(Color.WHITE);
-            g2d.drawString("Hyper-Fuel:", fuelX, uiBottomY - 30);
-            double hyperFuelProgress;
-            if (hyperSpeedActive) {
-                hyperFuelProgress = 1.0 - (double)(System.currentTimeMillis() - hyperspaceActivationTime) / HYPER_ACTIVE_DURATION;
+            g2d.drawString("Hyper-Fuel:", fuel1X, uiBottomY - labelOffset); // Removed player name
+
+            double hyperFuelProgress1;
+            if (hyperSpeedActive1) {
+                hyperFuelProgress1 = 1.0 - (double)(System.currentTimeMillis() - hyperspaceActivationTime1) / HYPER_ACTIVE_DURATION;
             } else {
-                long timeToRefill = hyperFuelRefillTime - System.currentTimeMillis();
+                long timeToRefill = hyperFuelRefillTime1 - System.currentTimeMillis();
                 if (timeToRefill <= 0) {
-                    hyperFuelProgress = 1.0; // Full
+                    hyperFuelProgress1 = 1.0; // Full
                 } else {
-                    hyperFuelProgress = 1.0 - (double)timeToRefill / HYPER_RECHARGE_DURATION;
+                    hyperFuelProgress1 = 1.0 - (double)timeToRefill / HYPER_RECHARGE_DURATION;
                 }
             }
-            if (hyperFuelProgress < 0) hyperFuelProgress = 0;
-            if (hyperFuelProgress > 1) hyperFuelProgress = 1;
+            if (hyperFuelProgress1 < 0) hyperFuelProgress1 = 0;
+            if (hyperFuelProgress1 > 1) hyperFuelProgress1 = 1;
 
-            g2d.setColor(Color.YELLOW);
-            g2d.drawRect(fuelX, uiBottomY - 15, barWidth, barHeight); // Border of hyper-fuel bar
-            g2d.fillRect(fuelX, uiBottomY - 15, (int)(barWidth * hyperFuelProgress), barHeight); // Filled part
+            // Draw background of fuel bar
+            g2d.setColor(Color.DARK_GRAY);
+            g2d.fillRect(fuel1X, uiBottomY - barOffset, barWidth, barHeight);
 
-            if (!hyperSpeedActive && System.currentTimeMillis() < hyperFuelRefillTime) {
-                g2d.setColor(Color.WHITE);
-                g2d.drawString("Hyper-Recharging...", fuelX, uiBottomY); // Below fuel bar
+            // Draw filled portion of fuel bar ("flowing water")
+            g2d.setColor(Color.CYAN); // Changed color for fuel fill
+            g2d.fillRect(fuel1X, uiBottomY - barOffset, (int)(barWidth * hyperFuelProgress1), barHeight);
+            g2d.setColor(Color.YELLOW); // Draw border over filled part
+            g2d.drawRect(fuel1X, uiBottomY - barOffset, barWidth, barHeight);
+
+            // Draw refuel message if recharging for Player 1
+            if (!hyperSpeedActive1 && System.currentTimeMillis() < hyperFuelRefillTime1) {
+                g2d.setColor(Color.ORANGE); // Different color for refuel message
+                String msg = "Refueling...";
+                FontMetrics fm = g2d.getFontMetrics();
+                int msgX = fuel1X + (barWidth - fm.stringWidth(msg)) / 2;
+                int msgY = uiBottomY - barOffset + barHeight / 2 + fm.getAscent() / 2; // Centered vertically in bar
+                g2d.drawString(msg, msgX, msgY);
             }
 
-            // Draw Bullets display
-            g2d.setColor(Color.WHITE);
-            g2d.drawString("Bullets: " + currentBullets + "/" + MAX_BULLETS, bulletsX, uiBottomY - 30);
 
-            // Draw reload message if reloading
-            if (reloading) {
+            // Draw Bullets display for Player 1
+            g2d.setColor(Color.WHITE);
+            g2d.drawString("Bullets: " + currentBullets1 + "/" + MAX_BULLETS, bullets1X, uiBottomY - labelOffset); // Removed player name
+
+            // Draw background of bullet bar
+            g2d.setColor(Color.DARK_GRAY);
+            g2d.fillRect(bullets1X, uiBottomY - barOffset, barWidth, barHeight);
+
+            // Draw filled portion of bullet bar (reload progress: 1/5 at a time)
+            double bulletReloadProgress = (double)currentBullets1 / MAX_BULLETS;
+            g2d.setColor(Color.GREEN.darker()); // Different color for bullet fill
+            g2d.fillRect(bullets1X, uiBottomY - barOffset, (int)(barWidth * bulletReloadProgress), barHeight);
+            g2d.setColor(Color.YELLOW); // Draw border over filled part
+            g2d.drawRect(bullets1X, uiBottomY - barOffset, barWidth, barHeight);
+
+            // Draw reload message if reloading for Player 1
+            if (reloading1) {
+                g2d.setColor(Color.RED); // Different color for reload message
+                String msg = "Reloading (Full)...";
+                FontMetrics fm = g2d.getFontMetrics();
+                int msgX = bullets1X + (barWidth - fm.stringWidth(msg)) / 2;
+                int msgY = uiBottomY - barOffset + barHeight / 2 + fm.getAscent() / 2; // Centered vertically in bar
+                g2d.drawString(msg, msgX, msgY);
+            } else if (currentBullets1 < MAX_BULLETS) { // Passive reload message
+                 g2d.setColor(Color.MAGENTA); // Another color for incremental reload
+                 String msg = "Reloading (" + currentBullets1 + "/"+MAX_BULLETS+")...";
+                 FontMetrics fm = g2d.getFontMetrics();
+                 int msgX = bullets1X + (barWidth - fm.stringWidth(msg)) / 2;
+                 int msgY = uiBottomY - barOffset + barHeight / 2 + fm.getAscent() / 2;
+                 g2d.drawString(msg, msgX, msgY);
+            }
+
+            // UI for Player 2 in multiplayer mode
+            if (state == GameState.MULTIPLAYER_PLAYING) {
+                int fuel2X = bullets1X + barWidth + 80; // Adjusted spacing between player sections
+                int bullets2X = fuel2X + barWidth + 50;
+
+                // Draw hyper-fuel bar for Player 2
                 g2d.setColor(Color.WHITE);
-                g2d.drawString("Reloading...", bulletsX, uiBottomY); // Below bullets count
-                double progress = (double)(System.currentTimeMillis() - reloadStartTime) / RELOAD_DURATION;
-                if (progress > 1.0) progress = 1.0;
-                g2d.drawRect(bulletsX, uiBottomY - 15, barWidth, barHeight);
-                g2d.fillRect(bulletsX, uiBottomY - 15, (int)(barWidth * progress), barHeight);
+                g2d.drawString("Hyper-Fuel:", fuel2X, uiBottomY - labelOffset); // Removed player name
+                double hyperFuelProgress2;
+                if (hyperSpeedActive2) {
+                    hyperFuelProgress2 = 1.0 - (double)(System.currentTimeMillis() - hyperspaceActivationTime2) / HYPER_ACTIVE_DURATION;
+                } else {
+                    long timeToRefill = hyperFuelRefillTime2 - System.currentTimeMillis();
+                    if (timeToRefill <= 0) {
+                        hyperFuelProgress2 = 1.0;
+                    } else {
+                        hyperFuelProgress2 = 1.0 - (double)timeToRefill / HYPER_RECHARGE_DURATION;
+                    }
+                }
+                if (hyperFuelProgress2 < 0) hyperFuelProgress2 = 0;
+                if (hyperFuelProgress2 > 1) hyperFuelProgress2 = 1;
+
+                g2d.setColor(Color.DARK_GRAY);
+                g2d.fillRect(fuel2X, uiBottomY - barOffset, barWidth, barHeight);
+
+                g2d.setColor(Color.CYAN);
+                g2d.fillRect(fuel2X, uiBottomY - barOffset, (int)(barWidth * hyperFuelProgress2), barHeight);
+                g2d.setColor(Color.YELLOW);
+                g2d.drawRect(fuel2X, uiBottomY - barOffset, barWidth, barHeight);
+
+                // Draw refuel message if recharging for Player 2
+                if (!hyperSpeedActive2 && System.currentTimeMillis() < hyperFuelRefillTime2) {
+                    g2d.setColor(Color.ORANGE);
+                    String msg = "Refueling...";
+                    FontMetrics fm = g2d.getFontMetrics();
+                    int msgX = fuel2X + (barWidth - fm.stringWidth(msg)) / 2;
+                    int msgY = uiBottomY - barOffset + barHeight / 2 + fm.getAscent() / 2;
+                    g2d.drawString(msg, msgX, msgY);
+                }
+
+                // Draw Bullets display for Player 2
+                g2d.setColor(Color.WHITE);
+                g2d.drawString("Bullets: " + currentBullets2 + "/" + MAX_BULLETS, bullets2X, uiBottomY - labelOffset); // Removed player name
+
+                g2d.setColor(Color.DARK_GRAY);
+                g2d.fillRect(bullets2X, uiBottomY - barOffset, barWidth, barHeight);
+
+                double bulletReloadProgress2 = (double)currentBullets2 / MAX_BULLETS;
+                g2d.setColor(Color.GREEN.darker());
+                g2d.fillRect(bullets2X, uiBottomY - barOffset, (int)(barWidth * bulletReloadProgress2), barHeight);
+                g2d.setColor(Color.YELLOW);
+                g2d.drawRect(bullets2X, uiBottomY - barOffset, barWidth, barHeight);
+
+                // Draw reload message if reloading for Player 2
+                if (reloading2) {
+                    g2d.setColor(Color.RED);
+                    String msg = "Reloading (Full)...";
+                    FontMetrics fm = g2d.getFontMetrics();
+                    int msgX = bullets2X + (barWidth - fm.stringWidth(msg)) / 2;
+                    int msgY = uiBottomY - barOffset + barHeight / 2 + fm.getAscent() / 2;
+                    g2d.drawString(msg, msgX, msgY);
+                } else if (currentBullets2 < MAX_BULLETS) { // Passive reload message
+                    g2d.setColor(Color.MAGENTA);
+                    String msg = "Reloading (" + currentBullets2 + "/"+MAX_BULLETS+")...";
+                    FontMetrics fm = g2d.getFontMetrics();
+                    int msgX = bullets2X + (barWidth - fm.stringWidth(msg)) / 2;
+                    int msgY = uiBottomY - barOffset + barHeight / 2 + fm.getAscent() / 2;
+                    g2d.drawString(msg, msgX, msgY);
+                }
             }
 
 
@@ -304,6 +623,40 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     }
 
     /**
+     * Draws a rectangular button with text, and handles click action.
+     * Note: Mouse listener for this button is handled generically in mouseClicked.
+     * @param g2d Graphics2D context.
+     * @param text Text to display on the button.
+     * @param centerX Center X coordinate of the button.
+     * @param centerY Center Y coordinate of the button.
+     * @param width Button width.
+     * @param height Button height.
+     * @param action Action to perform when button is clicked.
+     */
+    private void drawButton(Graphics2D g2d, String text, int centerX, int centerY, int width, int height, Runnable action) {
+        int x = centerX - width / 2;
+        int y = centerY - height / 2;
+
+        g2d.setColor(Color.DARK_GRAY);
+        g2d.fillRoundRect(x, y, width, height, 15, 15); // Rounded rectangle
+        g2d.setColor(Color.LIGHT_GRAY);
+        g2d.drawRoundRect(x, y, width, height, 15, 15);
+
+        g2d.setColor(Color.WHITE);
+        g2d.setFont(new Font("Arial", Font.BOLD, 20));
+        FontMetrics metrics = g2d.getFontMetrics();
+        int textX = x + (width - metrics.stringWidth(text)) / 2;
+        int textY = y + ((height - metrics.getHeight()) / 2) + metrics.getAscent();
+        g2d.drawString(text, textX, textY);
+
+        // Store button bounds and action for mouse click handling
+        buttonActions.put(new Rectangle(x, y, width, height), action);
+    }
+
+    private final java.util.Map<Rectangle, Runnable> buttonActions = new java.util.HashMap<>();
+
+
+    /**
      * Draws a simple 'X' button for closing the application in the top-right corner
      * of the *scaled* game area.
      * @param g2d The Graphics2D object.
@@ -328,7 +681,42 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         g2d.drawLine(buttonX + buttonSize - padding / 2, buttonY + padding / 2,
                      buttonX + padding / 2, buttonY + buttonSize - padding / 2);
         g2d.setStroke(new BasicStroke(1)); // Reset stroke
+
+        // Store close button bounds and action
+        buttonActions.put(new Rectangle(buttonX, buttonY, buttonSize, buttonSize), () -> System.exit(0));
     }
+
+    /**
+     * Draws a placeholder for a QR code.
+     * @param g2d Graphics2D context.
+     * @param x X coordinate.
+     * @param y Y coordinate.
+     * @param size Size of the QR code square.
+     * @param text Optional text to display inside.
+     */
+    private void drawQRCodePlaceholder(Graphics2D g2d, int x, int y, int size, String text) {
+        g2d.setColor(Color.WHITE);
+        g2d.fillRect(x, y, size, size);
+        g2d.setColor(Color.BLACK);
+        g2d.drawRect(x, y, size, size);
+
+        // Draw some random patterns to simulate QR code complexity
+        for (int i = 0; i < 5; i++) {
+            g2d.fillRect(x + random.nextInt(size - 10), y + random.nextInt(size - 10), 5 + random.nextInt(5), 5 + random.nextInt(5));
+        }
+
+        // Add text "Scan Me!" or placeholder URL
+        g2d.setColor(Color.RED); // Make text stand out
+        g2d.setFont(new Font("Arial", Font.BOLD, 14));
+        FontMetrics metrics = g2d.getFontMetrics();
+        int textX = x + (size - metrics.stringWidth("Scan Me!")) / 2;
+        int textY = y + (size / 2) + (metrics.getAscent() / 2);
+        g2d.drawString("Scan Me!", textX, textY);
+        if (text != null && !text.isEmpty()) {
+            g2d.drawString(text, x + (size - metrics.stringWidth(text)) / 2, y + size - 5);
+        }
+    }
+
 
     /**
      * This method is called repeatedly by the Swing Timer to update game logic.
@@ -336,47 +724,140 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
      */
     @Override
     public void actionPerformed(ActionEvent e) {
-        if (state == GameState.PLAYING) {
-            long now = System.currentTimeMillis();
+        long now = System.currentTimeMillis();
 
-            // Handle reload logic
-            if (reloading) {
-                if (now - reloadStartTime > RELOAD_DURATION) {
-                    reloading = false;
-                    currentBullets = MAX_BULLETS; // Reload magazine
+        if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING) {
+            // --- Player 1 Logic ---
+
+            // Passive reload for Player 1
+            if (!reloading1 && currentBullets1 < MAX_BULLETS) {
+                if (now - lastReloadTickTime1 >= RELOAD_INCREMENTAL_DURATION) {
+                    currentBullets1++;
+                    lastReloadTickTime1 = now;
                 }
             }
 
-            // Handle hyper-speed activation and deactivation
-            if (hyperspacePressed && !hyperSpeedActive && now >= hyperFuelRefillTime) {
-                hyperSpeedActive = true;
-                hyperspaceActivationTime = now;
-                ship.setInvincible(); // Grant invincibility when hyper-speed starts
-            }
-            if (hyperSpeedActive && now - hyperspaceActivationTime > HYPER_ACTIVE_DURATION) {
-                hyperSpeedActive = false;
-                hyperFuelRefillTime = now + HYPER_RECHARGE_DURATION; // Start recharge cooldown
+            // Full reload (when empty) for Player 1
+            if (reloading1) {
+                if (now - reloadStartTime1 > RELOAD_FULL_DURATION) {
+                    reloading1 = false;
+                    currentBullets1 = MAX_BULLETS; // Reload magazine
+                    lastReloadTickTime1 = now; // Reset passive reload timer too
+                }
             }
 
-            // Update game elements, passing hyperspeed status AND multiplier
-            ship.update(up, left, right, hyperSpeedActive, HYPER_SPEED_MULTIPLIER, WIDTH, HEIGHT);
+            // Shooting logic for Player 1 (triggered by single press)
+            if (shootRequested1) {
+                if (!reloading1 && currentBullets1 > 0 && (now - lastShotTime1 > BULLET_COOLDOWN)) {
+                    bullets.add(new Bullet(ship1));
+                    currentBullets1--;
+                    lastShotTime1 = now;
+                    if (currentBullets1 == 0) {
+                        reloading1 = true;
+                        reloadStartTime1 = now;
+                    }
+                }
+                shootRequested1 = false; // Consume the request
+            }
 
-            if (space) fireBullet();
+            // Hyperspace logic for Player 1 (triggered by single press)
+            if (hyperspaceRequested1) {
+                if (!hyperSpeedActive1 && now >= hyperFuelRefillTime1) {
+                    hyperSpeedActive1 = true;
+                    hyperspaceActivationTime1 = now;
+                    ship1.setInvincible();
+                }
+                hyperspaceRequested1 = false; // Consume the request
+            }
+
+            // Deactivate hyper-speed after duration for Player 1
+            if (hyperSpeedActive1 && now - hyperspaceActivationTime1 > HYPER_ACTIVE_DURATION) {
+                hyperSpeedActive1 = false;
+                hyperFuelRefillTime1 = now + HYPER_RECHARGE_DURATION; // Start recharge cooldown
+            }
+
+            // Update ship 1
+            ship1.update(up1, left1, right1, hyperSpeedActive1, HYPER_SPEED_MULTIPLIER, WIDTH, HEIGHT);
+
+            // --- Player 2 Logic (if multiplayer) ---
+            if (state == GameState.MULTIPLAYER_PLAYING) {
+                // Passive reload for Player 2
+                if (!reloading2 && currentBullets2 < MAX_BULLETS) {
+                    if (now - lastReloadTickTime2 >= RELOAD_INCREMENTAL_DURATION) {
+                        currentBullets2++;
+                        lastReloadTickTime2 = now;
+                    }
+                }
+
+                // Full reload (when empty) for Player 2
+                if (reloading2) {
+                    if (now - reloadStartTime2 > RELOAD_FULL_DURATION) {
+                        reloading2 = false;
+                        currentBullets2 = MAX_BULLETS;
+                        lastReloadTickTime2 = now;
+                    }
+                }
+
+                // Shooting logic for Player 2 (triggered by single press)
+                if (shootRequested2) {
+                    if (!reloading2 && currentBullets2 > 0 && (now - lastShotTime2 > BULLET_COOLDOWN)) {
+                        bullets.add(new Bullet(ship2));
+                        currentBullets2--;
+                        lastShotTime2 = now;
+                        if (currentBullets2 == 0) {
+                            reloading2 = true;
+                            reloadStartTime2 = now;
+                        }
+                    }
+                    shootRequested2 = false; // Consume the request
+                }
+
+                // Hyperspace logic for Player 2 (triggered by single press)
+                if (hyperspaceRequested2) {
+                    if (!hyperSpeedActive2 && now >= hyperFuelRefillTime2) {
+                        hyperSpeedActive2 = true;
+                        hyperspaceActivationTime2 = now;
+                        ship2.setInvincible();
+                    }
+                    hyperspaceRequested2 = false; // Consume the request
+                }
+
+                // Deactivate hyper-speed after duration for Player 2
+                if (hyperSpeedActive2 && now - hyperspaceActivationTime2 > HYPER_ACTIVE_DURATION) {
+                    hyperSpeedActive2 = false;
+                    hyperFuelRefillTime2 = now + HYPER_RECHARGE_DURATION;
+                }
+
+                // Update ship 2
+                ship2.update(up2, left2, right2, hyperSpeedActive2, HYPER_SPEED_MULTIPLIER, WIDTH, HEIGHT);
+            }
+
 
             bullets.forEach(b -> b.update(WIDTH, HEIGHT));
             asteroids.forEach(Asteroid::update);
             effects.forEach(PopEffect::update);
 
-            checkCollisions();
+            if (state == GameState.PLAYING_SINGLE) {
+                checkCollisionsSinglePlayer();
+            } else { // MULTIPLAYER_PLAYING
+                checkCollisionsMultiplayer();
+            }
             removeOffscreen();
 
-            // Spawn new asteroids (frequency increases with score)
-            // Asteroids spawn more frequently and slightly faster as score increases
-            if (random.nextInt(100) < (2 + score / 200)) { // Adjusted spawn rate
+            if (random.nextInt(100) < (2 + score / 200)) {
                 asteroids.add(new Asteroid(random, score));
             }
-        } else if (state == GameState.START) {
-            // Update stars movement only on start screen
+
+            // Check for game over (multiplayer condition)
+            if (state == GameState.MULTIPLAYER_PLAYING && lives1 <= 0 && lives2 <= 0) {
+                state = GameState.GAME_OVER;
+                score = (lives1 > 0 ? score : 0) + (lives2 > 0 ? score : 0); // Combined score
+                saveOrUpdateHighScore(userName1, score);
+            }
+
+
+        } else if (state == GameState.START || state == GameState.MULTIPLAYER_SETUP_NAMES || state == GameState.MULTIPLAYER_DISPLAY_QRS) {
+            // Update stars movement only on start screen and setup screens
             for (Star star : stars) {
                 star.update();
             }
@@ -386,6 +867,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             }
         }
         repaint(); // Request a repaint of the panel
+        buttonActions.clear(); // Clear actions after each repaint
     }
 
     /**
@@ -394,34 +876,59 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
      */
     @Override
     public void keyPressed(KeyEvent e) {
-        switch (e.getKeyCode()) {
-            case KeyEvent.VK_UP -> up = true;
-            case KeyEvent.VK_LEFT -> left = true;
-            case KeyEvent.VK_RIGHT -> right = true;
-            case KeyEvent.VK_SPACE -> space = true;
-            case KeyEvent.VK_H -> hyperspacePressed = true;
-            case KeyEvent.VK_ENTER -> {
-                if (state == GameState.START) {
-                    // Prompt for username only when starting from the initial START state
-                    String inputName = JOptionPane.showInputDialog(this, "Enter your username:", userName);
-                    if (inputName != null && !inputName.trim().isEmpty()) {
-                        userName = inputName.trim();
-                    } else {
-                        userName = "Player"; // Fallback if input is empty or cancelled
-                    }
-                    initGame(); // Re-initialize game state with potentially new username
-                    state = GameState.PLAYING;
-                    // Spawn initial asteroids only when starting playing
-                    for(int i = 0; i < 3; i++) {
-                        asteroids.add(new Asteroid(random, 0));
-                    }
-                } else if (state == GameState.GAME_OVER) {
-                    initGame();
-                    state = GameState.PLAYING;
-                    for(int i = 0; i < 3; i++) {
-                        asteroids.add(new Asteroid(random, 0));
+        int keyCode = e.getKeyCode();
+        if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING) {
+            // Player 1 Controls
+            switch (keyCode) {
+                case KeyEvent.VK_UP -> up1 = true;
+                case KeyEvent.VK_LEFT -> left1 = true;
+                case KeyEvent.VK_RIGHT -> right1 = true;
+            }
+            // Handle shoot key press for single shot
+            if (keyCode == player1ShootKey) {
+                if (!player1ShootKeyHeld) {
+                    shootRequested1 = true; // Request a shot for the next tick
+                    player1ShootKeyHeld = true; // Mark key as held
+                }
+            }
+            // Handle hyperspace key press for single activation
+            if (keyCode == player1HyperspaceKey) {
+                if (!player1HyperspaceKeyHeld) {
+                    hyperspaceRequested1 = true; // Request hyperspace for the next tick
+                    player1HyperspaceKeyHeld = true; // Mark key as held
+                }
+            }
+
+            // Player 2 Controls (only in multiplayer)
+            if (state == GameState.MULTIPLAYER_PLAYING) {
+                switch (keyCode) {
+                    case KeyEvent.VK_W -> up2 = true;
+                    case KeyEvent.VK_A -> left2 = true;
+                    case KeyEvent.VK_D -> right2 = true;
+                }
+                // Handle shoot key press for single shot
+                if (keyCode == player2ShootKey) {
+                    if (!player2ShootKeyHeld) {
+                        shootRequested2 = true;
+                        player2ShootKeyHeld = true;
                     }
                 }
+                // Handle hyperspace key press for single activation
+                if (keyCode == player2HyperspaceKey) {
+                    if (!player2HyperspaceKeyHeld) {
+                        hyperspaceRequested2 = true;
+                        player2HyperspaceKeyHeld = true;
+                    }
+                }
+            }
+        }
+
+        // State transitions
+        if (keyCode == KeyEvent.VK_ENTER) {
+            if (state == GameState.GAME_OVER) {
+                initGame(); // Re-initialize game state
+                state = GameState.PLAYING_SINGLE; // Default to single player after game over
+                spawnInitialAsteroids(); // Spawn asteroids for the new game
             }
         }
     }
@@ -432,12 +939,37 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
      */
     @Override
     public void keyReleased(KeyEvent e) {
-        switch (e.getKeyCode()) {
-            case KeyEvent.VK_UP -> up = false;
-            case KeyEvent.VK_LEFT -> left = false;
-            case KeyEvent.VK_RIGHT -> right = false;
-            case KeyEvent.VK_SPACE -> space = false;
-            case KeyEvent.VK_H -> hyperspacePressed = false;
+        int keyCode = e.getKeyCode();
+        if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING) {
+            // Player 1 Controls
+            switch (keyCode) {
+                case KeyEvent.VK_UP -> up1 = false;
+                case KeyEvent.VK_LEFT -> left1 = false;
+                case KeyEvent.VK_RIGHT -> right1 = false;
+            }
+            // Reset key held flags on release
+            if (keyCode == player1ShootKey) {
+                player1ShootKeyHeld = false;
+            }
+            if (keyCode == player1HyperspaceKey) {
+                player1HyperspaceKeyHeld = false;
+            }
+
+            // Player 2 Controls
+            if (state == GameState.MULTIPLAYER_PLAYING) {
+                switch (keyCode) {
+                    case KeyEvent.VK_W -> up2 = false;
+                    case KeyEvent.VK_A -> left2 = false;
+                    case KeyEvent.VK_D -> right2 = false;
+                }
+                // Reset key held flags on release
+                if (keyCode == player2ShootKey) {
+                    player2ShootKeyHeld = false;
+                }
+                if (keyCode == player2HyperspaceKey) {
+                    player2HyperspaceKeyHeld = false;
+                }
+            }
         }
     }
 
@@ -449,31 +981,11 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     public void keyTyped(KeyEvent e) { /* Not used */ }
 
     /**
-     * Fires a bullet from the ship if the cooldown allows and bullets are available.
+     * Checks for collisions in single-player mode.
      */
-    void fireBullet() {
-        long now = System.currentTimeMillis();
-        // Only fire if not reloading and bullets are available and cooldown is met
-        if (!reloading && currentBullets > 0 && (now - lastShotTime > BULLET_COOLDOWN)) {
-            bullets.add(new Bullet(ship));
-            currentBullets--; // Decrement bullet count
-            lastShotTime = now;
-            // If out of bullets, start reloading
-            if (currentBullets == 0) {
-                reloading = true;
-                reloadStartTime = now;
-            }
-        }
-    }
-
-    /**
-     * Checks for collisions between bullets and asteroids, and ship and asteroids.
-     */
-    void checkCollisions() {
-        // Temporary list to hold new asteroids created from splitting
+    void checkCollisionsSinglePlayer() {
         List<Asteroid> newAsteroids = new ArrayList<>();
 
-        // Bullet-Asteroid collisions
         Iterator<Bullet> bulletIterator = bullets.iterator();
         while (bulletIterator.hasNext()) {
             Bullet bullet = bulletIterator.next();
@@ -481,80 +993,147 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             while (asteroidIterator.hasNext()) {
                 Asteroid asteroid = asteroidIterator.next();
                 if (bullet.getBounds().intersects(asteroid.getBounds())) {
-                    bulletIterator.remove(); // Remove the bullet
-                    effects.add(new PopEffect(asteroid.x, asteroid.y, random)); // Add explosion effect
+                    bulletIterator.remove();
+                    effects.add(new PopEffect(asteroid.x, asteroid.y, random));
                     score += 10;
-
-                    // Asteroid splitting logic: add new asteroids to the temporary list
                     if (asteroid.size > Asteroid.MIN_SPLIT_SIZE) {
                         for (int i = 0; i < 2; i++) {
                             newAsteroids.add(new Asteroid(asteroid.x, asteroid.y, asteroid.size / 2, random));
                         }
                     }
-                    asteroidIterator.remove(); // Remove the hit asteroid
-                    break; // Bullet can only hit one asteroid, so break inner loop
+                    asteroidIterator.remove();
+                    break;
                 }
             }
         }
-        // Add all newly created asteroids to the main list AFTER the iteration is complete
         asteroids.addAll(newAsteroids);
 
-
-        // Ship-Asteroid collisions
-        if (ship.isInvincible()) { // Ship is temporarily invincible after respawn/hyperspace
-            return; // No collision if invincible
-        }
+        if (ship1.isInvincible()) return;
 
         for (Asteroid asteroid : asteroids) {
-            if (asteroid.getBounds().intersects(ship.getBounds())) {
-                lives--;
-                effects.add(new PopEffect(ship.x, ship.y, random)); // Pop effect at ship location
-                if (lives <= 0) {
-                    state = GameState.GAME_OVER; // Game over if no lives left
-                    // Save high score when game ends
-                    // Check if current score is a new high score or updates an existing one
-                    boolean userFound = false;
-                    for (HighScoreEntry entry : highScores) {
-                        if (entry.getUserName().equals(userName)) {
-                            userFound = true;
-                            if (score > entry.getScore()) {
-                                entry.score = score; // Update score if higher
-                                Collections.sort(highScores, Comparator.comparingInt(HighScoreEntry::getScore).reversed());
-                                // Trim if necessary (e.g., if a new high score pushes others out)
-                                if (highScores.size() > 5) {
-                                    highScores = highScores.subList(0, 5);
-                                }
-                                saveHighScores();
-                            }
-                            break; // User found, no need to check further
-                        }
-                    }
-                    if (!userFound) {
-                        // User not in list, add new entry
-                        highScores.add(new HighScoreEntry(userName, score));
-                        Collections.sort(highScores, Comparator.comparingInt(HighScoreEntry::getScore).reversed());
-                        // Keep only the top 5 scores
-                        if (highScores.size() > 5) {
-                            highScores = highScores.subList(0, 5);
-                        }
-                        saveHighScores();
-                    }
+            if (asteroid.getBounds().intersects(ship1.getBounds())) {
+                lives1--;
+                effects.add(new PopEffect(ship1.x, ship1.y, random));
+                if (lives1 <= 0) {
+                    state = GameState.GAME_OVER;
+                    saveOrUpdateHighScore(userName1, score);
                 } else {
-                    ship.resetPosition(WIDTH / 2, HEIGHT / 2); // Respawn ship in center
+                    ship1.resetPosition(WIDTH / 2, HEIGHT / 2);
                 }
-                break; // Ship can only collide with one asteroid at a time (for simplicity)
+                break;
             }
         }
     }
 
     /**
-     * Removes off-screen bullets, asteroids, and expired pop effects.
+     * Checks for collisions in multiplayer mode.
      */
-    void removeOffscreen() {
-        bullets.removeIf(b -> !b.onScreen(WIDTH, HEIGHT)); // Bullets now disappear, not wrap
-        asteroids.removeIf(a -> !a.onScreen(WIDTH, HEIGHT));
-        effects.removeIf(p -> p.life <= 0); // Remove pop effects when their life runs out
+    void checkCollisionsMultiplayer() {
+        List<Asteroid> newAsteroids = new ArrayList<>();
+
+        Iterator<Bullet> bulletIterator = bullets.iterator();
+        while (bulletIterator.hasNext()) {
+            Bullet bullet = bulletIterator.next();
+            Iterator<Asteroid> asteroidIterator = asteroids.iterator();
+            while (asteroidIterator.hasNext()) {
+                Asteroid asteroid = asteroidIterator.next();
+                if (bullet.getBounds().intersects(asteroid.getBounds())) {
+                    bulletIterator.remove();
+                    effects.add(new PopEffect(asteroid.x, asteroid.y, random));
+                    score += 10; // Combined score for now
+                    if (asteroid.size > Asteroid.MIN_SPLIT_SIZE) {
+                        for (int i = 0; i < 2; i++) {
+                            newAsteroids.add(new Asteroid(asteroid.x, asteroid.y, asteroid.size / 2, random));
+                        }
+                    }
+                    asteroidIterator.remove();
+                    break;
+                }
+            }
+        }
+        asteroids.addAll(newAsteroids);
+
+        // Ship 1 - Asteroid collisions
+        if (!ship1.isInvincible()) {
+            for (Asteroid asteroid : asteroids) {
+                if (asteroid.getBounds().intersects(ship1.getBounds())) {
+                    lives1--;
+                    effects.add(new PopEffect(ship1.x, ship1.y, random));
+                    if (lives1 <= 0) {
+                        // Ship 1 destroyed, but game continues if ship 2 is alive
+                    } else {
+                        ship1.resetPosition(WIDTH / 4, HEIGHT / 2); // Respawn ship 1
+                    }
+                    // Do not remove asteroid here, as it might hit ship 2
+                    break; // Ship can only collide with one asteroid at a time (for simplicity)
+                }
+            }
+        }
+
+        // Ship 2 - Asteroid collisions
+        if (!ship2.isInvincible()) {
+            for (Asteroid asteroid : asteroids) {
+                if (asteroid.getBounds().intersects(ship2.getBounds())) {
+                    lives2--;
+                    effects.add(new PopEffect(ship2.x, ship2.y, random));
+                    if (lives2 <= 0) {
+                        // Ship 2 destroyed, but game continues if ship 1 is alive
+                    } else {
+                        ship2.resetPosition(3 * WIDTH / 4, HEIGHT / 2); // Respawn ship 2
+                    }
+                    // Do not remove asteroid here, as it might hit ship 1
+                    break;
+                }
+            }
+        }
+
+        // Ship-to-ship collision (simple bounce, no damage)
+        if (ship1.getBounds().intersects(ship2.getBounds())) {
+            // Simple recoil/bounce effect for demonstration
+            double tempDx1 = ship1.dx;
+            double tempDy1 = ship1.dy;
+            ship1.dx = ship2.dx * 0.5; // Transfer some momentum
+            ship1.dy = ship2.dy * 0.5;
+            ship2.dx = tempDx1 * 0.5;
+            ship2.dy = tempDy1 * 0.5;
+        }
     }
+
+
+    void removeOffscreen() {
+        bullets.removeIf(b -> !b.onScreen(WIDTH, HEIGHT));
+        asteroids.removeIf(a -> !a.onScreen(WIDTH, HEIGHT));
+        effects.removeIf(p -> p.life <= 0);
+    }
+
+    /**
+     * Saves or updates the high score for a given user.
+     * @param username The username of the player.
+     * @param score The score to save.
+     */
+    private void saveOrUpdateHighScore(String username, int score) {
+        boolean userFound = false;
+        for (HighScoreEntry entry : highScores) {
+            if (entry.getUserName().equals(username)) {
+                userFound = true;
+                if (score > entry.getScore()) {
+                    entry.score = score; // Update score if higher
+                }
+                break; // User found, no need to check further
+            }
+        }
+        if (!userFound) {
+            // User not in list, add new entry
+            highScores.add(new HighScoreEntry(username, score));
+        }
+        Collections.sort(highScores, Comparator.comparingInt(HighScoreEntry::getScore).reversed());
+        // Keep only the top 5 scores
+        if (highScores.size() > 5) {
+            highScores = highScores.subList(0, 5);
+        }
+        saveHighScores();
+    }
+
 
     /**
      * Saves the current high score list to a file.
@@ -587,37 +1166,26 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     /**
      * Enum to define the different states of the game.
      */
-    enum GameState { START, PLAYING, GAME_OVER }
+    enum GameState { START, PLAYING_SINGLE, MULTIPLAYER_SETUP_NAMES, MULTIPLAYER_DISPLAY_QRS, MULTIPLAYER_PLAYING, GAME_OVER }
 
-    // MouseListener implementations for the close button
+    // MouseListener implementations for button clicks
     @Override
     public void mouseClicked(MouseEvent e) {
-        int buttonSize = 30;
-        int padding = 10;
-        int buttonX = WIDTH - buttonSize - padding;
-        int buttonY = padding;
-
-        // Get actual mouse coordinates relative to the panel
-        double mouseX = e.getX();
-        double mouseY = e.getY();
-
-        // Calculate scaling factors to convert mouse coordinates back to game's internal coordinates
+        // Convert mouse coordinates to game's internal coordinates
         double scaleX = (double) getWidth() / WIDTH;
         double scaleY = (double) getHeight() / HEIGHT;
         double scale = Math.min(scaleX, scaleY);
-
-        // Convert mouse coordinates to game's internal coordinates
-        // First, undo the translation used to center the scaled content
         double scaledGameAreaXOffset = (getWidth() - WIDTH * scale) / 2;
         double scaledGameAreaYOffset = (getHeight() - HEIGHT * scale) / 2;
-        double gameMouseX = (mouseX - scaledGameAreaXOffset) / scale;
-        double gameMouseY = (mouseY - scaledGameAreaYOffset) / scale;
 
+        double gameMouseX = (e.getX() - scaledGameAreaXOffset) / scale;
+        double gameMouseY = (e.getY() - scaledGameAreaYOffset) / scale;
 
-        // Check if the click was within the close button bounds (in game's internal coordinates)
-        if (gameMouseX >= buttonX && gameMouseX <= buttonX + buttonSize &&
-            gameMouseY >= buttonY && gameMouseY <= buttonY + buttonSize) {
-            System.exit(0); // Close the application
+        for (java.util.Map.Entry<Rectangle, Runnable> entry : buttonActions.entrySet()) {
+            if (entry.getKey().contains(gameMouseX, gameMouseY)) {
+                entry.getValue().run();
+                break; // Only one button can be clicked at a time
+            }
         }
     }
 
@@ -673,21 +1241,26 @@ class Ship {
     int angle = 270; // 270 degrees is straight up (standard for top-down games)
     private final double ACCELERATION = 0.2;
     private final double FRICTION = 0.98; // Reduces velocity over time
-    private final double ROTATION_SPEED = 3; // Degrees per frame
+    private final double ROTATION_SPEED = 4.5; // Increased for faster/smoother rotation
     public final int SIZE = 20; // Represents roughly half width/height for bounding box and drawing
     private final int INVINCIBILITY_DURATION = 1500; // milliseconds after spawn/hit/hyperspace
     private long invincibilityEndTime = 0;
+    private final Pattern pattern; // New field for ship pattern
+
+    enum Pattern { NONE, ZEBRA, DOTTED } // Enum for different patterns
 
     /**
      * Constructor for the Ship.
      * @param startX Initial X position.
      * @param startY Initial Y position.
+     * @param pattern The visual pattern for the ship's interior.
      */
-    Ship(int startX, int startY) {
+    Ship(int startX, int startY, Pattern pattern) {
         this.x = startX;
         this.y = startY;
         this.dx = 0;
         this.dy = 0;
+        this.pattern = pattern;
         setInvincible(); // Start as invincible to prevent immediate collision
     }
 
@@ -732,10 +1305,6 @@ class Ship {
      */
     void update(boolean up, boolean left, boolean right, boolean hyperSpeedActive, double hyperSpeedMultiplier, int screenWidth, int screenHeight) {
         double currentAcceleration = ACCELERATION;
-        if (hyperSpeedActive) {
-            currentAcceleration *= hyperSpeedMultiplier; // Apply multiplier if hyper-speed is active
-        }
-
         if (up) {
             // Apply thrust in the direction of the ship's angle
             dx += Math.cos(Math.toRadians(angle)) * currentAcceleration;
@@ -784,6 +1353,12 @@ class Ship {
         g2d.setColor(Color.WHITE);
         g2d.fill(shipBody);
 
+        // Draw internal patterns
+        g2d.clip(shipBody); // Clip drawing to the ship's body
+        drawPattern(g2d, pattern);
+        g2d.setClip(null); // Reset clip
+
+
         // Thrust effect visualization (only if accelerating significantly)
         if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) { // Check if ship is moving
             Path2D thrust = new Path2D.Double();
@@ -821,6 +1396,36 @@ class Ship {
 
         // Restore the previous transform state
         g2d.setTransform(oldTransform);
+    }
+
+    /**
+     * Draws the specified pattern inside the ship's body.
+     * @param g2d Graphics2D context.
+     * @param pattern The pattern to draw.
+     */
+    private void drawPattern(Graphics2D g2d, Pattern pattern) {
+        g2d.setColor(Color.BLACK); // Pattern color
+
+        switch (pattern) {
+            case ZEBRA:
+                // Draw horizontal stripes
+                for (int i = -SIZE; i <= SIZE; i += 4) { // Adjust stripe thickness
+                    g2d.drawLine(-SIZE / 2, i, SIZE / 2, i);
+                }
+                break;
+            case DOTTED:
+                // Draw dots
+                for (int y = -SIZE; y <= SIZE; y += 6) { // Adjust dot spacing
+                    for (int x = -SIZE / 2; x <= SIZE / 2; x += 6) {
+                        g2d.fillOval(x - 1, y - 1, 2, 2); // Small dots
+                    }
+                }
+                break;
+            case NONE:
+            default:
+                // No pattern
+                break;
+        }
     }
 
     /**
