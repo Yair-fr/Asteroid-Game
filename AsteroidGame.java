@@ -3,13 +3,16 @@ import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Path2D;
+import java.io.*;
 import java.util.ArrayList;
+import java.util.Collections; // For sorting high scores
+import java.util.Comparator;  // For sorting high scores
 import java.util.Iterator;
+import java.util.List;
 import java.util.Random;
-import java.awt.geom.AffineTransform; // Explicitly import AffineTransform
-import java.util.List; // Import List for newAsteroids
+import java.awt.geom.AffineTransform;
 
-public class AsteroidGame extends JPanel implements ActionListener, KeyListener, MouseListener { // Implement MouseListener
+public class AsteroidGame extends JPanel implements ActionListener, KeyListener, MouseListener {
     // Game constants - remain fixed for internal game logic dimensions
     public static final int WIDTH = 800;
     public static final int HEIGHT = 600;
@@ -21,7 +24,11 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     // Hyperspace constants
     private static final long HYPER_ACTIVE_DURATION = 2000; // 2 seconds of hyper-speed
     private static final long HYPER_RECHARGE_DURATION = 10000; // 10 seconds to recharge hyper-fuel
-    private static final double HYPER_SPEED_MULTIPLIER = 4.0; // 4x acceleration during hyperspeed
+    private static final double HYPER_SPEED_MULTIPLIER = 2.0; // Changed from 4.0 to 2.0 as requested
+
+    // Starfield constants for the start screen
+    private static final int MAX_STARS = 150; // Number of stars in the background
+    private final ArrayList<Star> stars = new ArrayList<>(); // Starfield for background
 
     // Game state variables
     Timer timer;
@@ -44,6 +51,13 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     private boolean hyperSpeedActive = false;
     private long hyperspaceActivationTime = 0;
     private long hyperFuelRefillTime = 0; // Time when hyper-fuel will be ready again
+
+    // High Score management
+    private List<HighScoreEntry> highScores = new ArrayList<>(); // Changed to a List
+    private static final String HIGHSCORE_FILE = "highscores.dat"; // Changed filename to reflect list
+
+    // Username input for new high scores
+    private String userName = "Player"; // Default username
 
     // Random generator for the game
     private final Random random = new Random();
@@ -92,9 +106,30 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         hyperFuelRefillTime = System.currentTimeMillis(); // Hyper-fuel is full at start
 
         up = left = right = space = hyperspacePressed = false;
-        // Spawn some initial asteroids to get the game going
-        for(int i = 0; i < 3; i++) {
-            asteroids.add(new Asteroid(random, 0)); // Initial asteroids with score 0
+
+        // Load high score list at game initialization
+        loadHighScores();
+        // If high scores were loaded, set username to the top scorer's name
+        if (!highScores.isEmpty()) {
+            userName = highScores.get(0).getUserName();
+        }
+
+        // Populate stars for the start screen background
+        stars.clear();
+        populateStars(WIDTH, HEIGHT, MAX_STARS);
+
+        // Asteroids are spawned only when game state becomes PLAYING
+    }
+
+    /**
+     * Populates the starfield for the background.
+     * @param screenWidth The width of the game area.
+     * @param screenHeight The height of the game area.
+     * @param numStars The number of stars to generate.
+     */
+    private void populateStars(int screenWidth, int screenHeight, int numStars) {
+        for (int i = 0; i < numStars; i++) {
+            stars.add(new Star(random, screenWidth, screenHeight));
         }
     }
 
@@ -125,41 +160,68 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         // The Graphics2D context will automatically scale and translate them
 
         if (state == GameState.START) {
-            drawCenteredString(g2d, "ASTEROID GAME", new Font("Arial", Font.BOLD, 48), HEIGHT / 3);
+            // Draw moving star background
+            for (Star star : stars) {
+                star.draw(g2d);
+            }
+
+            g2d.setColor(Color.WHITE);
+            g2d.setFont(new Font("Arial", Font.BOLD, 60)); // Larger title
+            drawCenteredString(g2d, "ASTEROID GAME", new Font("Arial", Font.BOLD, 60), HEIGHT / 3);
+
+            g2d.setFont(new Font("Arial", Font.PLAIN, 24));
             drawCenteredString(g2d, "Press ENTER to Start", new Font("Arial", Font.PLAIN, 24), HEIGHT / 2);
+
+            g2d.setFont(new Font("Arial", Font.PLAIN, 18));
             drawCenteredString(g2d, "Controls:", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 50);
             drawCenteredString(g2d, "UP Arrow: Thrust", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 75);
             drawCenteredString(g2d, "LEFT/RIGHT Arrows: Rotate", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 100);
             drawCenteredString(g2d, "SPACE: Fire", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 125);
             drawCenteredString(g2d, "H: Hyper-Speed", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 150);
+
+            // Display High Score on Start screen
+            g2d.setFont(new Font("Arial", Font.PLAIN, 24));
+            drawCenteredString(g2d, "High Scores:", new Font("Arial", Font.BOLD, 28), HEIGHT / 2 + 200);
+            int scoreY = HEIGHT / 2 + 230;
+            for (int i = 0; i < Math.min(highScores.size(), 5); i++) { // Display top 5 scores
+                HighScoreEntry entry = highScores.get(i);
+                drawCenteredString(g2d, (i + 1) + ". " + entry.getUserName() + ": " + entry.getScore(),
+                                   new Font("Arial", Font.PLAIN, 20), scoreY + (i * 25));
+            }
+
+
+            g2d.setFont(new Font("Arial", Font.PLAIN, 16));
+            drawCenteredString(g2d, "Yair FR©", new Font("Arial", Font.PLAIN, 16), HEIGHT - 20); // Copyright at bottom middle
+
         } else if (state == GameState.PLAYING) {
             ship.draw(g2d);
             for (Bullet b : bullets) b.draw(g2d);
             for (Asteroid a : asteroids) a.draw(g2d);
             for (PopEffect p : effects) p.draw(g2d);
 
-            // UI elements like score and lives
+            // UI elements like score and lives (top left)
             g2d.setColor(Color.WHITE);
             g2d.setFont(new Font("Arial", Font.PLAIN, 18));
             g2d.drawString("Score: " + score, 10, 20);
             g2d.drawString("Lives: " + lives, 10, 40);
-            g2d.drawString("Bullets: " + currentBullets + "/" + MAX_BULLETS, 10, 60);
 
-            // Draw reload bar if reloading
-            if (reloading) {
-                g2d.setColor(Color.WHITE);
-                g2d.drawString("Reloading...", 10, 80);
+            // Positioned at bottom middle
+            int uiBottomY = HEIGHT - 20; // Slightly above bottom edge
+            int barWidth = 100;
+            int barHeight = 10;
+            int spacing = 40; // Space between fuel bar and bullet count
 
-                double progress = (double)(System.currentTimeMillis() - reloadStartTime) / RELOAD_DURATION;
-                if (progress > 1.0) progress = 1.0;
+            // Calculate starting X for the centered block of UI elements
+            int totalUIElementsWidth = barWidth + spacing + g2d.getFontMetrics(new Font("Arial", Font.PLAIN, 18)).stringWidth("Bullets: " + MAX_BULLETS + "/" + MAX_BULLETS);
+            int startX = (WIDTH - totalUIElementsWidth) / 2;
 
-                g2d.drawRect(10, 90, 100, 10); // Border of the loading bar
-                g2d.fillRect(10, 90, (int)(100 * progress), 10); // Filled part
-            }
+            int fuelX = startX;
+            int bulletsX = fuelX + barWidth + spacing;
+
 
             // Draw hyper-fuel bar
             g2d.setColor(Color.WHITE);
-            g2d.drawString("Hyper-Fuel:", 10, 120);
+            g2d.drawString("Hyper-Fuel:", fuelX, uiBottomY - 30);
             double hyperFuelProgress;
             if (hyperSpeedActive) {
                 hyperFuelProgress = 1.0 - (double)(System.currentTimeMillis() - hyperspaceActivationTime) / HYPER_ACTIVE_DURATION;
@@ -175,18 +237,47 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             if (hyperFuelProgress > 1) hyperFuelProgress = 1;
 
             g2d.setColor(Color.YELLOW);
-            g2d.drawRect(10, 130, 100, 10); // Border of hyper-fuel bar
-            g2d.fillRect(10, 130, (int)(100 * hyperFuelProgress), 10); // Filled part
+            g2d.drawRect(fuelX, uiBottomY - 15, barWidth, barHeight); // Border of hyper-fuel bar
+            g2d.fillRect(fuelX, uiBottomY - 15, (int)(barWidth * hyperFuelProgress), barHeight); // Filled part
 
             if (!hyperSpeedActive && System.currentTimeMillis() < hyperFuelRefillTime) {
                 g2d.setColor(Color.WHITE);
-                g2d.drawString("Hyper-Recharging...", 10, 150);
+                g2d.drawString("Hyper-Recharging...", fuelX, uiBottomY); // Below fuel bar
             }
+
+            // Draw Bullets display
+            g2d.setColor(Color.WHITE);
+            g2d.drawString("Bullets: " + currentBullets + "/" + MAX_BULLETS, bulletsX, uiBottomY - 30);
+
+            // Draw reload message if reloading
+            if (reloading) {
+                g2d.setColor(Color.WHITE);
+                g2d.drawString("Reloading...", bulletsX, uiBottomY); // Below bullets count
+                double progress = (double)(System.currentTimeMillis() - reloadStartTime) / RELOAD_DURATION;
+                if (progress > 1.0) progress = 1.0;
+                g2d.drawRect(bulletsX, uiBottomY - 15, barWidth, barHeight);
+                g2d.fillRect(bulletsX, uiBottomY - 15, (int)(barWidth * progress), barHeight);
+            }
+
 
         } else if (state == GameState.GAME_OVER) {
             drawCenteredString(g2d, "GAME OVER", new Font("Arial", Font.BOLD, 48), HEIGHT / 3);
             drawCenteredString(g2d, "Final Score: " + score, new Font("Arial", Font.PLAIN, 24), HEIGHT / 2);
-            drawCenteredString(g2d, "Press ENTER to Restart", new Font("Arial", Font.PLAIN, 24), HEIGHT / 2 + 50);
+
+            // Display High Score
+            g2d.setFont(new Font("Arial", Font.PLAIN, 24));
+            if (!highScores.isEmpty()) {
+                drawCenteredString(g2d, "High Scores:", new Font("Arial", Font.BOLD, 28), HEIGHT / 2 + 50);
+                int scoreY = HEIGHT / 2 + 80;
+                for (int i = 0; i < Math.min(highScores.size(), 5); i++) { // Display top 5 scores
+                    HighScoreEntry entry = highScores.get(i);
+                    drawCenteredString(g2d, (i + 1) + ". " + entry.getUserName() + ": " + entry.getScore(),
+                                       new Font("Arial", Font.PLAIN, 20), scoreY + (i * 25));
+                }
+            }
+
+            g2d.setFont(new Font("Arial", Font.PLAIN, 24));
+            drawCenteredString(g2d, "Press ENTER to Restart", new Font("Arial", Font.PLAIN, 24), HEIGHT - 50);
         }
 
         // Draw the close button (always visible)
@@ -201,14 +292,14 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
      * Helper method to draw centered strings relative to the game's internal WIDTH.
      * @param g2d The Graphics2D object.
      * @param text The text to draw.
-     * @param font The font to use.
-     * @param y The y-coordinate for the center of the text (relative to game's internal height).
+     * @param font The font to use for drawing.
+     * @param y The y-coordinate for the baseline of the text (relative to game's internal height).
      */
     private void drawCenteredString(Graphics2D g2d, String text, Font font, int y) {
-        g2d.setFont(font);
-        FontMetrics metrics = g2d.getFontMetrics(font);
-        int x = (WIDTH - metrics.stringWidth(text)) / 2; // Use game's internal WIDTH
-        g2d.setColor(Color.WHITE);
+        g2d.setFont(font); // Set the font
+        FontMetrics metrics = g2d.getFontMetrics(font); // Get metrics for the specific font
+        int x = (WIDTH - metrics.stringWidth(text)) / 2; // Calculate x to center in the game WIDTH
+        g2d.setColor(Color.WHITE); // Ensure color is set
         g2d.drawString(text, x, y);
     }
 
@@ -284,6 +375,15 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             if (random.nextInt(100) < (2 + score / 200)) { // Adjusted spawn rate
                 asteroids.add(new Asteroid(random, score));
             }
+        } else if (state == GameState.START) {
+            // Update stars movement only on start screen
+            for (Star star : stars) {
+                star.update();
+            }
+            // Add new stars if needed to maintain density
+            if (stars.size() < MAX_STARS) {
+                stars.add(new Star(random, WIDTH, HEIGHT));
+            }
         }
         repaint(); // Request a repaint of the panel
     }
@@ -301,9 +401,26 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             case KeyEvent.VK_SPACE -> space = true;
             case KeyEvent.VK_H -> hyperspacePressed = true;
             case KeyEvent.VK_ENTER -> {
-                if (state != GameState.PLAYING) {
-                    initGame(); // Re-initialize game state
+                if (state == GameState.START) {
+                    // Prompt for username only when starting from the initial START state
+                    String inputName = JOptionPane.showInputDialog(this, "Enter your username:", userName);
+                    if (inputName != null && !inputName.trim().isEmpty()) {
+                        userName = inputName.trim();
+                    } else {
+                        userName = "Player"; // Fallback if input is empty or cancelled
+                    }
+                    initGame(); // Re-initialize game state with potentially new username
                     state = GameState.PLAYING;
+                    // Spawn initial asteroids only when starting playing
+                    for(int i = 0; i < 3; i++) {
+                        asteroids.add(new Asteroid(random, 0));
+                    }
+                } else if (state == GameState.GAME_OVER) {
+                    initGame();
+                    state = GameState.PLAYING;
+                    for(int i = 0; i < 3; i++) {
+                        asteroids.add(new Asteroid(random, 0));
+                    }
                 }
             }
         }
@@ -394,6 +511,34 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 effects.add(new PopEffect(ship.x, ship.y, random)); // Pop effect at ship location
                 if (lives <= 0) {
                     state = GameState.GAME_OVER; // Game over if no lives left
+                    // Save high score when game ends
+                    // Check if current score is a new high score or updates an existing one
+                    boolean userFound = false;
+                    for (HighScoreEntry entry : highScores) {
+                        if (entry.getUserName().equals(userName)) {
+                            userFound = true;
+                            if (score > entry.getScore()) {
+                                entry.score = score; // Update score if higher
+                                Collections.sort(highScores, Comparator.comparingInt(HighScoreEntry::getScore).reversed());
+                                // Trim if necessary (e.g., if a new high score pushes others out)
+                                if (highScores.size() > 5) {
+                                    highScores = highScores.subList(0, 5);
+                                }
+                                saveHighScores();
+                            }
+                            break; // User found, no need to check further
+                        }
+                    }
+                    if (!userFound) {
+                        // User not in list, add new entry
+                        highScores.add(new HighScoreEntry(userName, score));
+                        Collections.sort(highScores, Comparator.comparingInt(HighScoreEntry::getScore).reversed());
+                        // Keep only the top 5 scores
+                        if (highScores.size() > 5) {
+                            highScores = highScores.subList(0, 5);
+                        }
+                        saveHighScores();
+                    }
                 } else {
                     ship.resetPosition(WIDTH / 2, HEIGHT / 2); // Respawn ship in center
                 }
@@ -409,6 +554,34 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         bullets.removeIf(b -> !b.onScreen(WIDTH, HEIGHT)); // Bullets now disappear, not wrap
         asteroids.removeIf(a -> !a.onScreen(WIDTH, HEIGHT));
         effects.removeIf(p -> p.life <= 0); // Remove pop effects when their life runs out
+    }
+
+    /**
+     * Saves the current high score list to a file.
+     */
+    private void saveHighScores() {
+        try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(HIGHSCORE_FILE))) {
+            oos.writeObject(highScores);
+        } catch (IOException e) {
+            System.err.println("Error saving high scores: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Loads the high score list from a file. If no file exists, initializes with an empty list.
+     */
+    private void loadHighScores() {
+        try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(HIGHSCORE_FILE))) {
+            highScores = (List<HighScoreEntry>) ois.readObject();
+            // Ensure the loaded list is sorted, just in case
+            Collections.sort(highScores, Comparator.comparingInt(HighScoreEntry::getScore).reversed());
+        } catch (FileNotFoundException e) {
+            System.out.println("High score file not found. Starting with an empty list.");
+            highScores = new ArrayList<>(); // Initialize empty list
+        } catch (IOException | ClassNotFoundException e) {
+            System.err.println("Error loading high scores: " + e.getMessage());
+            highScores = new ArrayList<>(); // Fallback to empty list
+        }
     }
 
     /**
@@ -456,6 +629,40 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     public void mouseEntered(MouseEvent e) {}
     @Override
     public void mouseExited(MouseEvent e) {}
+
+    /**
+     * Inner class representing a star in the background.
+     */
+    private class Star {
+        double x, y;
+        int size;
+        double speed;
+        Color color;
+
+        Star(Random random, int screenWidth, int screenHeight) {
+            this.x = random.nextDouble() * screenWidth;
+            this.y = random.nextDouble() * screenHeight; // Start anywhere on screen
+            this.size = 1 + random.nextInt(2); // Small stars (1-2 pixels)
+            this.speed = 0.5 + random.nextDouble() * 2.5; // Varying speeds
+            this.color = new Color(255, 255, 255, 150 + random.nextInt(100)); // Fading white
+        }
+
+        void update() {
+            y += speed;
+            // Wrap around top if goes off bottom
+            if (y > HEIGHT) { // Use AsteroidGame.HEIGHT (or just HEIGHT since it's an inner class)
+                y = 0; // Reset to top
+                x = random.nextDouble() * WIDTH; // New random X
+                speed = 0.5 + random.nextDouble() * 2.5; // New random speed
+                color = new Color(255, 255, 255, 150 + random.nextInt(100)); // New random transparency
+            }
+        }
+
+        void draw(Graphics2D g2d) {
+            g2d.setColor(color);
+            g2d.fillOval((int) x, (int) y, size, size);
+        }
+    }
 }
 
 /**
@@ -602,13 +809,14 @@ class Ship {
             }
 
             // Red shield circle: a bit bigger than the ship
-            int shieldSize = SIZE * 2 + 10; // Original SIZE is half-width, so SIZE*2 is full width
-                                          // Add 10 pixels for it to be "a bit bigger"
+            int shieldRadius = SIZE + 5; // SIZE is half width. Shield radius is ship's half width + 5.
+            int shieldDiameter = shieldRadius * 2;
+
             g2d.setColor(new Color(255, 0, 0, 150)); // Semi-transparent red
             // Draw the shield centered on the ship's origin (which is currently translated to x,y)
-            g2d.fill(new Ellipse2D.Double(-shieldSize / 2, -shieldSize / 2, shieldSize, shieldSize));
+            g2d.fill(new Ellipse2D.Double(-shieldRadius, -shieldRadius, shieldDiameter, shieldDiameter));
             g2d.setColor(Color.RED);
-            g2d.draw(new Ellipse2D.Double(-shieldSize / 2, -shieldSize / 2, shieldSize, shieldSize));
+            g2d.draw(new Ellipse2D.Double(-shieldRadius, -shieldRadius, shieldDiameter, shieldDiameter));
         }
 
         // Restore the previous transform state
@@ -864,5 +1072,27 @@ class PopEffect {
             int smallRadius = currentRadius / 2 + random.nextInt(currentRadius / 2);
             g2d.drawOval((int)x - smallRadius / 2 + random.nextInt(5) - 2, (int)y - smallRadius / 2 + random.nextInt(5) - 2, smallRadius, smallRadius);
         }
+    }
+}
+
+/**
+ * Represents a high score entry, which is serializable for saving to a file.
+ */
+class HighScoreEntry implements Serializable { // Renamed from HighScore
+    private static final long serialVersionUID = 1L; // Recommended for Serializable
+    String userName;
+    int score;
+
+    public HighScoreEntry(String userName, int score) {
+        this.userName = userName;
+        this.score = score;
+    }
+
+    public String getUserName() {
+        return userName;
+    }
+
+    public int getScore() {
+        return score;
     }
 }
