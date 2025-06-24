@@ -9,15 +9,19 @@ import java.util.Random;
 import java.awt.geom.AffineTransform; // Explicitly import AffineTransform
 import java.util.List; // Import List for newAsteroids
 
-public class AsteroidGame extends JPanel implements ActionListener, KeyListener {
+public class AsteroidGame extends JPanel implements ActionListener, KeyListener, MouseListener { // Implement MouseListener
     // Game constants - remain fixed for internal game logic dimensions
     public static final int WIDTH = 800;
     public static final int HEIGHT = 600;
     private static final int INITIAL_LIVES = 3;
-    private static final long BULLET_COOLDOWN = 150; // milliseconds
-    private static final long HYPERSPACE_COOLDOWN = 5000; // milliseconds
+    private static final long BULLET_COOLDOWN = 1000; // 1 second delay between shots
     private static final int MAX_BULLETS = 5; // Max bullets in magazine
     private static final long RELOAD_DURATION = 5000; // 5 seconds to reload
+
+    // Hyperspace constants
+    private static final long HYPER_ACTIVE_DURATION = 2000; // 2 seconds of hyper-speed
+    private static final long HYPER_RECHARGE_DURATION = 10000; // 10 seconds to recharge hyper-fuel
+    private static final double HYPER_SPEED_MULTIPLIER = 4.0; // 4x acceleration during hyperspeed
 
     // Game state variables
     Timer timer;
@@ -30,12 +34,16 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener 
     int lives = INITIAL_LIVES;
     GameState state = GameState.START;
     long lastShotTime = 0;
-    long lastHyperspaceTime = 0; // This now correctly tracks the game's cooldown
 
     // Bullet magazine and reload state
     private int currentBullets = MAX_BULLETS;
     private boolean reloading = false;
     private long reloadStartTime = 0;
+
+    // Hyperspace state
+    private boolean hyperSpeedActive = false;
+    private long hyperspaceActivationTime = 0;
+    private long hyperFuelRefillTime = 0; // Time when hyper-fuel will be ready again
 
     // Random generator for the game
     private final Random random = new Random();
@@ -49,7 +57,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener 
         frame.setExtendedState(JFrame.MAXIMIZED_BOTH); // Set to full screen
         frame.setUndecorated(true); // Remove window decorations for full screen experience (optional)
 
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE); // Close operation for the frame
         frame.setVisible(true);
     }
 
@@ -57,6 +65,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener 
         setBackground(Color.BLACK);
         setFocusable(true);
         addKeyListener(this);
+        addMouseListener(this); // Add mouse listener for the close button
         initGame();
         timer = new Timer(15, this); // ~60 FPS
         timer.start();
@@ -73,10 +82,15 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener 
         score = 0;
         lives = INITIAL_LIVES;
         lastShotTime = 0;
-        lastHyperspaceTime = 0; // Reset hyperspace cooldown
         currentBullets = MAX_BULLETS; // Reset bullets
         reloading = false; // Reset reload state
         reloadStartTime = 0; // Reset reload timer
+
+        // Reset hyperspace state
+        hyperSpeedActive = false;
+        hyperspaceActivationTime = 0;
+        hyperFuelRefillTime = System.currentTimeMillis(); // Hyper-fuel is full at start
+
         up = left = right = space = hyperspacePressed = false;
         // Spawn some initial asteroids to get the game going
         for(int i = 0; i < 3; i++) {
@@ -117,7 +131,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener 
             drawCenteredString(g2d, "UP Arrow: Thrust", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 75);
             drawCenteredString(g2d, "LEFT/RIGHT Arrows: Rotate", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 100);
             drawCenteredString(g2d, "SPACE: Fire", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 125);
-            drawCenteredString(g2d, "H: Hyperspace Jump", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 150);
+            drawCenteredString(g2d, "H: Hyper-Speed", new Font("Arial", Font.PLAIN, 18), HEIGHT / 2 + 150);
         } else if (state == GameState.PLAYING) {
             ship.draw(g2d);
             for (Bullet b : bullets) b.draw(g2d);
@@ -143,11 +157,41 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener 
                 g2d.fillRect(10, 90, (int)(100 * progress), 10); // Filled part
             }
 
+            // Draw hyper-fuel bar
+            g2d.setColor(Color.WHITE);
+            g2d.drawString("Hyper-Fuel:", 10, 120);
+            double hyperFuelProgress;
+            if (hyperSpeedActive) {
+                hyperFuelProgress = 1.0 - (double)(System.currentTimeMillis() - hyperspaceActivationTime) / HYPER_ACTIVE_DURATION;
+            } else {
+                long timeToRefill = hyperFuelRefillTime - System.currentTimeMillis();
+                if (timeToRefill <= 0) {
+                    hyperFuelProgress = 1.0; // Full
+                } else {
+                    hyperFuelProgress = 1.0 - (double)timeToRefill / HYPER_RECHARGE_DURATION;
+                }
+            }
+            if (hyperFuelProgress < 0) hyperFuelProgress = 0;
+            if (hyperFuelProgress > 1) hyperFuelProgress = 1;
+
+            g2d.setColor(Color.YELLOW);
+            g2d.drawRect(10, 130, 100, 10); // Border of hyper-fuel bar
+            g2d.fillRect(10, 130, (int)(100 * hyperFuelProgress), 10); // Filled part
+
+            if (!hyperSpeedActive && System.currentTimeMillis() < hyperFuelRefillTime) {
+                g2d.setColor(Color.WHITE);
+                g2d.drawString("Hyper-Recharging...", 10, 150);
+            }
+
         } else if (state == GameState.GAME_OVER) {
             drawCenteredString(g2d, "GAME OVER", new Font("Arial", Font.BOLD, 48), HEIGHT / 3);
             drawCenteredString(g2d, "Final Score: " + score, new Font("Arial", Font.PLAIN, 24), HEIGHT / 2);
             drawCenteredString(g2d, "Press ENTER to Restart", new Font("Arial", Font.PLAIN, 24), HEIGHT / 2 + 50);
         }
+
+        // Draw the close button (always visible)
+        drawCloseButton(g2d);
+
 
         // Restore the original transform so subsequent painting (if any) is not affected
         g2d.setTransform(originalTransform);
@@ -169,6 +213,33 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener 
     }
 
     /**
+     * Draws a simple 'X' button for closing the application in the top-right corner
+     * of the *scaled* game area.
+     * @param g2d The Graphics2D object.
+     */
+    private void drawCloseButton(Graphics2D g2d) {
+        int buttonSize = 30; // Size of the square button area
+        int padding = 10;    // Padding from the edges
+
+        // Calculate position relative to the internal game dimensions
+        int buttonX = WIDTH - buttonSize - padding;
+        int buttonY = padding;
+
+        g2d.setColor(Color.RED.darker()); // Darker red background for the button
+        g2d.fillRect(buttonX, buttonY, buttonSize, buttonSize);
+        g2d.setColor(Color.RED);
+        g2d.drawRect(buttonX, buttonY, buttonSize, buttonSize);
+
+        g2d.setColor(Color.WHITE);
+        g2d.setStroke(new BasicStroke(2)); // Thicker lines for the X
+        g2d.drawLine(buttonX + padding / 2, buttonY + padding / 2,
+                     buttonX + buttonSize - padding / 2, buttonY + buttonSize - padding / 2);
+        g2d.drawLine(buttonX + buttonSize - padding / 2, buttonY + padding / 2,
+                     buttonX + padding / 2, buttonY + buttonSize - padding / 2);
+        g2d.setStroke(new BasicStroke(1)); // Reset stroke
+    }
+
+    /**
      * This method is called repeatedly by the Swing Timer to update game logic.
      * @param e The ActionEvent from the timer.
      */
@@ -185,16 +256,21 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener 
                 }
             }
 
-            // Update game elements
-            ship.update(up, left, right, WIDTH, HEIGHT);
+            // Handle hyper-speed activation and deactivation
+            if (hyperspacePressed && !hyperSpeedActive && now >= hyperFuelRefillTime) {
+                hyperSpeedActive = true;
+                hyperspaceActivationTime = now;
+                ship.setInvincible(); // Grant invincibility when hyper-speed starts
+            }
+            if (hyperSpeedActive && now - hyperspaceActivationTime > HYPER_ACTIVE_DURATION) {
+                hyperSpeedActive = false;
+                hyperFuelRefillTime = now + HYPER_RECHARGE_DURATION; // Start recharge cooldown
+            }
+
+            // Update game elements, passing hyperspeed status AND multiplier
+            ship.update(up, left, right, hyperSpeedActive, HYPER_SPEED_MULTIPLIER, WIDTH, HEIGHT);
 
             if (space) fireBullet();
-            // Attempt hyperspace jump and update the cooldown time if successful
-            if (hyperspacePressed) {
-                if (ship.hyperspace(WIDTH, HEIGHT, now, lastHyperspaceTime, HYPERSPACE_COOLDOWN)) {
-                    lastHyperspaceTime = now; // Update cooldown if jump was successful
-                }
-            }
 
             bullets.forEach(b -> b.update(WIDTH, HEIGHT));
             asteroids.forEach(Asteroid::update);
@@ -339,6 +415,47 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener 
      * Enum to define the different states of the game.
      */
     enum GameState { START, PLAYING, GAME_OVER }
+
+    // MouseListener implementations for the close button
+    @Override
+    public void mouseClicked(MouseEvent e) {
+        int buttonSize = 30;
+        int padding = 10;
+        int buttonX = WIDTH - buttonSize - padding;
+        int buttonY = padding;
+
+        // Get actual mouse coordinates relative to the panel
+        double mouseX = e.getX();
+        double mouseY = e.getY();
+
+        // Calculate scaling factors to convert mouse coordinates back to game's internal coordinates
+        double scaleX = (double) getWidth() / WIDTH;
+        double scaleY = (double) getHeight() / HEIGHT;
+        double scale = Math.min(scaleX, scaleY);
+
+        // Convert mouse coordinates to game's internal coordinates
+        // First, undo the translation used to center the scaled content
+        double scaledGameAreaXOffset = (getWidth() - WIDTH * scale) / 2;
+        double scaledGameAreaYOffset = (getHeight() - HEIGHT * scale) / 2;
+        double gameMouseX = (mouseX - scaledGameAreaXOffset) / scale;
+        double gameMouseY = (mouseY - scaledGameAreaYOffset) / scale;
+
+
+        // Check if the click was within the close button bounds (in game's internal coordinates)
+        if (gameMouseX >= buttonX && gameMouseX <= buttonX + buttonSize &&
+            gameMouseY >= buttonY && gameMouseY <= buttonY + buttonSize) {
+            System.exit(0); // Close the application
+        }
+    }
+
+    @Override
+    public void mousePressed(MouseEvent e) {}
+    @Override
+    public void mouseReleased(MouseEvent e) {}
+    @Override
+    public void mouseEntered(MouseEvent e) {}
+    @Override
+    public void mouseExited(MouseEvent e) {}
 }
 
 /**
@@ -401,14 +518,21 @@ class Ship {
      * @param up Whether the up arrow key is pressed.
      * @param left Whether the left arrow key is pressed.
      * @param right Whether the right arrow key is pressed.
+     * @param hyperSpeedActive Whether hyper-speed is currently active.
+     * @param hyperSpeedMultiplier The multiplier to apply for hyper-speed acceleration.
      * @param screenWidth Width of the game screen.
      * @param screenHeight Height of the game screen.
      */
-    void update(boolean up, boolean left, boolean right, int screenWidth, int screenHeight) {
+    void update(boolean up, boolean left, boolean right, boolean hyperSpeedActive, double hyperSpeedMultiplier, int screenWidth, int screenHeight) {
+        double currentAcceleration = ACCELERATION;
+        if (hyperSpeedActive) {
+            currentAcceleration *= hyperSpeedMultiplier; // Apply multiplier if hyper-speed is active
+        }
+
         if (up) {
             // Apply thrust in the direction of the ship's angle
-            dx += Math.cos(Math.toRadians(angle)) * ACCELERATION;
-            dy += Math.sin(Math.toRadians(angle)) * ACCELERATION;
+            dx += Math.cos(Math.toRadians(angle)) * currentAcceleration;
+            dy += Math.sin(Math.toRadians(angle)) * currentAcceleration;
         }
 
         // Apply friction to gradually slow down the ship
@@ -477,8 +601,9 @@ class Ship {
                 g2d.fill(shipBody);
             }
 
-            // Red shield circle
-            int shieldSize = SIZE + 10; // A bit bigger than the ship
+            // Red shield circle: a bit bigger than the ship
+            int shieldSize = SIZE * 2 + 10; // Original SIZE is half-width, so SIZE*2 is full width
+                                          // Add 10 pixels for it to be "a bit bigger"
             g2d.setColor(new Color(255, 0, 0, 150)); // Semi-transparent red
             // Draw the shield centered on the ship's origin (which is currently translated to x,y)
             g2d.fill(new Ellipse2D.Double(-shieldSize / 2, -shieldSize / 2, shieldSize, shieldSize));
@@ -488,29 +613,6 @@ class Ship {
 
         // Restore the previous transform state
         g2d.setTransform(oldTransform);
-    }
-
-    /**
-     * Performs a hyperspace jump, teleporting the ship to a random location.
-     * Includes a cooldown and grants temporary invincibility.
-     * @param screenWidth Width of the game screen.
-     * @param screenHeight Height of the game screen.
-     * @param currentTime The current system time.
-     * @param gameLastHyperspaceTime The last time a hyperspace jump occurred (from game main loop).
-     * @param cooldown The cooldown duration for hyperspace.
-     * @return true if the hyperspace jump was successful, false otherwise (due to cooldown).
-     */
-    boolean hyperspace(int screenWidth, int screenHeight, long currentTime, long gameLastHyperspaceTime, long cooldown) {
-        if (currentTime - gameLastHyperspaceTime > cooldown) {
-            Random random = new Random(); // Create a local Random for this method
-            this.x = random.nextInt(screenWidth); // Teleport to random X
-            this.y = random.nextInt(screenHeight); // Teleport to random Y
-            this.dx = 0; // Reset velocity after jump
-            this.dy = 0;
-            setInvincible(); // Grant temporary invincibility after jump
-            return true; // Hyperspace successful
-        }
-        return false; // On cooldown
     }
 
     /**
