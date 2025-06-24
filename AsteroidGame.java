@@ -215,7 +215,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     @Override
     public void paintComponent(Graphics g) {
         super.paintComponent(g);
-        Graphics2D g2d = (Graphics2d) g;
+        Graphics2D g2d = (Graphics2D) g; // Corrected from Graphics2d to Graphics2D
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
         // Save the original transform
