@@ -277,7 +277,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             int scoreY = HEIGHT / 2 + 370;
             for (int i = 0; i < Math.min(highScores.size(), 3); i++) { // Display top 3 scores
                 HighScoreEntry entry = highScores.get(i);
-                drawCenteredString(g2d, (i + 1) + ". " + entry.getUserName() + ": " + entry.getScore(),
+                drawCenteredString(g2d, (i + 1) + ". " + entry.getUserName() + ": " + entry.getScore() + " (D:" + entry.getDifficulty() + ")",
                                    new Font("Arial", Font.PLAIN, 20), scoreY + (i * 25));
             }
 
@@ -596,7 +596,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 int scoreY = HEIGHT / 2 + 80;
                 for (int i = 0; i < Math.min(highScores.size(), 3); i++) { // Display top 3 scores
                     HighScoreEntry entry = highScores.get(i);
-                    drawCenteredString(g2d, (i + 1) + ". " + entry.getUserName() + ": " + entry.getScore(),
+                    drawCenteredString(g2d, (i + 1) + ". " + entry.getUserName() + ": " + entry.getScore() + " (D:" + entry.getDifficulty() + ")",
                                        new Font("Arial", Font.PLAIN, 20), scoreY + (i * 25));
                 }
             }
@@ -921,8 +921,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             // Check for game over (multiplayer condition)
             if (state == GameState.MULTIPLAYER_PLAYING && lives1 <= 0 && lives2 <= 0) {
                 state = GameState.GAME_OVER;
-                score = (lives1 > 0 ? score : 0) + (lives2 > 0 ? score : 0); // Combined score
-                saveOrUpdateHighScore(userName1, score);
+                saveOrUpdateHighScore(userName1, score, initialDifficulty); // Pass initialDifficulty
             }
 
 
@@ -1087,7 +1086,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 effects.add(new PopEffect(ship1.x, ship1.y, random));
                 if (lives1 <= 0) {
                     state = GameState.GAME_OVER;
-                    saveOrUpdateHighScore(userName1, score);
+                    saveOrUpdateHighScore(userName1, score, initialDifficulty); // Pass initialDifficulty
                 } else {
                     ship1.resetPosition(WIDTH / 2, HEIGHT / 2);
                 }
@@ -1198,11 +1197,13 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
      * Saves or updates the high score for a given user.
      * @param username The username of the player.
      * @param score The score to save.
+     * @param difficulty The difficulty level at which the score was achieved.
      */
-    private void saveOrUpdateHighScore(String username, int score) {
+    private void saveOrUpdateHighScore(String username, int score, int difficulty) {
         boolean userFound = false;
         for (HighScoreEntry entry : highScores) {
-            if (entry.getUserName().equals(username)) {
+            // Check if user and difficulty match for updating
+            if (entry.getUserName().equals(username) && entry.getDifficulty() == difficulty) {
                 userFound = true;
                 if (score > entry.getScore()) {
                     entry.score = score; // Update score if higher
@@ -1211,14 +1212,12 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             }
         }
         if (!userFound) {
-            // User not in list, add new entry
-            highScores.add(new HighScoreEntry(username, score));
+            // User not in list or same user with different difficulty, add new entry
+            highScores.add(new HighScoreEntry(username, score, difficulty));
         }
         Collections.sort(highScores, Comparator.comparingInt(HighScoreEntry::getScore).reversed());
-        // Keep only the top 5 scores (or whatever limit you want for saving)
-        // Here we keep all for the popup, but only show top 5/3 on screen.
-        // For actual saving, you might want to limit here too if file size is a concern.
-        if (highScores.size() > 20) { // Example: keep top 20 scores in file
+        // Keep only the top 20 scores (or whatever limit you want for saving)
+        if (highScores.size() > 20) {
             highScores = highScores.subList(0, 20);
         }
         saveHighScores();
@@ -1231,7 +1230,18 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     private void saveHighScores() {
         try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(HIGHSCORE_FILE))) {
             oos.writeObject(highScores);
-        } catch (IOException e) {
+        }
+        catch (InvalidClassException e) {
+            System.err.println("InvalidClassException when saving high scores. This might mean the HighScoreEntry class structure has changed. Deleting old scores file.");
+            // Attempt to delete the corrupted file and then save new scores
+            new File(HIGHSCORE_FILE).delete();
+            try (ObjectOutputStream oos2 = new ObjectOutputStream(new FileOutputStream(HIGHSCORE_FILE))) {
+                oos2.writeObject(highScores);
+            } catch (IOException e2) {
+                System.err.println("Error saving high scores after cleanup: " + e2.getMessage());
+            }
+        }
+        catch (IOException e) {
             System.err.println("Error saving high scores: " + e.getMessage());
         }
     }
@@ -1248,30 +1258,78 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         } catch (FileNotFoundException e) {
             System.out.println("High score file not found. Starting with an empty list.");
             highScores = new ArrayList<>(); // Initialize empty list
-        } catch (IOException | ClassNotFoundException e) {
+        } catch (InvalidClassException e) {
+            System.err.println("InvalidClassException when loading high scores. This might mean the HighScoreEntry class structure has changed. Deleting old scores file and starting new.");
+            // If the class structure changed, the old file is unreadable. Delete it.
+            new File(HIGHSCORE_FILE).delete();
+            highScores = new ArrayList<>();
+        }
+        catch (IOException | ClassNotFoundException e) {
             System.err.println("Error loading high scores: " + e.getMessage());
             highScores = new ArrayList<>(); // Fallback to empty list
         }
     }
 
     /**
-     * Displays a popup window showing all high scores.
+     * Displays a popup window showing all high scores, with an option to filter by difficulty.
      */
     private void showAllHighScores() {
+        String[] difficultyOptions = new String[11];
+        difficultyOptions[0] = "All Difficulties";
+        for (int i = 1; i <= 10; i++) {
+            difficultyOptions[i] = String.valueOf(i);
+        }
+
+        String selectedDifficultyStr = (String) JOptionPane.showInputDialog(
+                this,
+                "Select Difficulty to View:",
+                "Filter High Scores",
+                JOptionPane.QUESTION_MESSAGE,
+                null,
+                difficultyOptions,
+                difficultyOptions[0] // Default to "All Difficulties"
+        );
+
+        int filterDifficulty = -1; // -1 means no filter (show all)
+        if (selectedDifficultyStr != null && !selectedDifficultyStr.equals("All Difficulties")) {
+            try {
+                filterDifficulty = Integer.parseInt(selectedDifficultyStr);
+            } catch (NumberFormatException e) {
+                // Should not happen with dropdown, but good practice
+                System.err.println("Invalid difficulty selected for filter: " + selectedDifficultyStr);
+            }
+        }
+
         StringBuilder sb = new StringBuilder("All High Scores:\n\n");
-        if (highScores.isEmpty()) {
-            sb.append("No high scores recorded yet. Play a game!");
+        sb.append(String.format("%-20s %-10s %s\n", "Player", "Score", "Difficulty")); // Table header
+        sb.append("------------------------------------------\n");
+
+        List<HighScoreEntry> filteredScores = new ArrayList<>();
+        if (filterDifficulty == -1) {
+            filteredScores.addAll(highScores);
         } else {
-            for (int i = 0; i < highScores.size(); i++) {
-                HighScoreEntry entry = highScores.get(i);
-                sb.append(String.format("%d. %s: %d\n", (i + 1), entry.getUserName(), entry.getScore()));
+            for (HighScoreEntry entry : highScores) {
+                if (entry.getDifficulty() == filterDifficulty) {
+                    filteredScores.add(entry);
+                }
+            }
+        }
+
+        if (filteredScores.isEmpty()) {
+            sb.append("No high scores recorded yet for this difficulty. Play a game!");
+        } else {
+            for (int i = 0; i < filteredScores.size(); i++) {
+                HighScoreEntry entry = filteredScores.get(i);
+                // Adjust formatting for alignment. Max username length or fixed.
+                sb.append(String.format("%-2d. %-15s %-10d %d\n", (i + 1), entry.getUserName(), entry.getScore(), entry.getDifficulty()));
             }
         }
         // Use a JTextArea inside a JScrollPane for potentially long lists
         JTextArea textArea = new JTextArea(sb.toString());
+        textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12)); // Use monospaced font for alignment
         textArea.setEditable(false);
         JScrollPane scrollPane = new JScrollPane(textArea);
-        scrollPane.setPreferredSize(new Dimension(300, 400)); // Set preferred size for the scroll pane
+        scrollPane.setPreferredSize(new Dimension(400, 400)); // Set preferred size for the scroll pane
 
         JOptionPane.showMessageDialog(this, scrollPane, "All High Scores", JOptionPane.INFORMATION_MESSAGE);
     }
@@ -1833,14 +1891,16 @@ class PopEffect {
 /**
  * Represents a high score entry, which is serializable for saving to a file.
  */
-class HighScoreEntry implements Serializable { // Renamed from HighScore
-    private static final long serialVersionUID = 1L; // Recommended for Serializable
+class HighScoreEntry implements Serializable {
+    private static final long serialVersionUID = 2L; // Updated serialVersionUID
     String userName;
     int score;
+    int difficulty; // New field for difficulty
 
-    public HighScoreEntry(String userName, int score) {
+    public HighScoreEntry(String userName, int score, int difficulty) {
         this.userName = userName;
         this.score = score;
+        this.difficulty = difficulty;
     }
 
     public String getUserName() {
@@ -1849,5 +1909,9 @@ class HighScoreEntry implements Serializable { // Renamed from HighScore
 
     public int getScore() {
         return score;
+    }
+
+    public int getDifficulty() {
+        return difficulty;
     }
 }
