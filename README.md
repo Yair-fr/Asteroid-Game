@@ -1,66 +1,65 @@
 # 🚀 Asteroid Game
 
-## 🎮 Overview
-Asteroid Game is a classic arcade-style space shooter developed in Java using Swing. Players navigate through an asteroid field, avoiding collisions and destroying asteroids with precision shooting. The game supports both single-player and local multiplayer modes, complete with customizable controls and ship designs.
+Welcome to the **Asteroid Game**, a classic arcade-style space shooter developed in Java Swing! Navigate your spaceship through perilous asteroid fields, blast obstacles, collect power-ups, and aim for the high score.
 
-## ✨ Features
+This enhanced version introduces:
+- Multiplayer mode  
+- AI-controlled opponent ("Jarvis")  
+- Ship customization  
+- Advanced power-ups  
+- Dynamic difficulty and performance stats  
 
-- **Single-Player Mode** – Face waves of asteroids solo.
-- **Local Multiplayer Mode** – Play with a friend on the same keyboard.
-- **Customizable Controls** – Configure shoot and hyperspace keys individually.
-- **Ship Skins** – Choose from various patterns in multiplayer (Default, Zebra, Dotted).
-- **Dynamic Asteroid Spawning** – Asteroids split into smaller pieces upon destruction.
-- **Bullet Magazine System** – Limited ammo with cooldown-based reloading.
-- **Hyperspace Ability** – Temporary invincibility and speed burst (with cooldown).
-- **High Score Tracking** – Best scores are automatically recorded and displayed.
-- **Responsive Scaling** – Adapts to window size while maintaining aspect ratio.
-- **Visual Effects** – Includes background starfield and explosion animations.
+---
 
-## 🎯 Game Objective
-Destroy asteroids to earn points and avoid collisions to preserve your lives. In multiplayer, cooperate or compete for the high score.
+## 🎮 Features
 
-## 🕹️ Controls
+### 🔹 Single-Player Mode
+- Face continuous waves of asteroids with increasing difficulty.
 
-### Player 1 (Default)
-- **Thrust:** `↑` Arrow
-- **Rotate Left:** `←` Arrow
-- **Rotate Right:** `→` Arrow
-- **Shoot:** `SPACE` (Configurable)
-- **Hyperspace:** `H` (Configurable)
+### 🔹 Multiplayer Mode (Local)
+- **Customizable Names & Controls**: Personalize player names and key bindings.
+- **Quick Play**: Jump in with default settings.
+- **Co-op Gameplay**: Survive together with a friend.
+- **Ship-to-Ship Interaction**: Push each other without damage.
 
-### Player 2 (Multiplayer Only, Default)
-- **Thrust:** `W`
-- **Rotate Left:** `A`
-- **Rotate Right:** `D`
-- **Shoot:** `C` (Configurable)
-- **Hyperspace:** `V` (Configurable)
+### 🤖 ML Mode (Jarvis AI)
+- Battle "Jarvis", a learning AI ship.
+- Configurable AI lives.
+- Adaptive behavior that evolves with gameplay.
 
-### General
-- **Restart Game (after Game Over):** `ENTER`
-- **Exit Game:** Click the ❌ button (top right corner)
+### ✨ Power-Ups
+- **Freeze (❄️)**: Appears every 100 points. Freezes all asteroids for 2 seconds.
+- **AtomBOOM (☢️)**: Appears every 200 points. Creates a blast clearing nearby asteroids.
+- **Shield**: Temporary invincibility and asteroid slowdown. Includes cooldown.
 
-## 🔧 Gameplay Mechanics
+### 🔫 Bullet Mechanics
+- Limited magazine with reload system:
+  - Full reload after empty.
+  - Passive incremental reloads.
 
-### 🔫 Shooting
-- You have a 5-bullet magazine.
-- **Full reload:** 5 seconds after all bullets are used.
-- **Passive reload:** 1 bullet per second when not full.
+### 📈 High Scores & Stats
+- Saves best scores with difficulty and AI details.
+- Detailed post-game statistics:
+  - Time played
+  - Asteroids destroyed
+  - Bullets fired
+  - Shields used
+- Visual charts:
+  - Pie chart for bullet accuracy
+  - Bar chart for shield usage
 
-### 🌌 Hyperspace
-- Grants brief invincibility and speed boost.
-- Available with a cooldown.
+### 🎨 Visual & Customization
+- Dynamic starfield background.
+- Multiple ship patterns: *Default, Zebra, Dotted*
 
-### ☄️ Asteroids
-- Large asteroids split into smaller ones when destroyed.
-- Destroying them increases your score.
+---
 
-## 🛠️ Setup & Running the Game
+## 🛠️ How to Run
 
-### Requirements
-- Java JDK 8 or higher.
+### Prerequisites
+- Java Development Kit (JDK 8 or higher)
 
-### Steps
-1. **Save the Code:** `AsteroidGame.java`
-2. **Compile:**
-   ```bash
-   javac AsteroidGame.java
+### Compile
+```bash
+javac AsteroidGame.java Ship.java Bullet.java Asteroid.java PopEffect.java \
+HighScoreEntry.java AIStats.java ShipAI.java StatisticsDialog.java PowerUp.java
