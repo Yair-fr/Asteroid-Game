@@ -548,7 +548,8 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             
             // Apply Freeze background effect
             if (System.currentTimeMillis() < freezeEndTime) {
-                g2d.setColor(new Color(173, 216, 230, 100)); // Light blue translucent
+                // Changed freeze effect to a more distinct light blue
+                g2d.setColor(new Color(100, 150, 255, 100)); // Light blue translucent
                 g2d.fillRect(0, 0, WIDTH, HEIGHT);
             }
 
@@ -1445,6 +1446,11 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                     saveOrUpdateHighScore(userName1, score, initialDifficulty, false, null);
                 } else {
                     ship1.resetPosition(WIDTH / 2, HEIGHT / 2);
+                    // Reset ammo and shield charge on hit/respawn for Player 1
+                    currentBullets1 = MAX_BULLETS;
+                    reloading1 = false;
+                    shieldActive1 = false;
+                    shieldRefillTime1 = System.currentTimeMillis(); // Shield immediately available
                 }
                 break;
             }
@@ -1492,6 +1498,11 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                         // Ship 1 destroyed, but game continues if ship 2 is alive
                     } else {
                         ship1.resetPosition(WIDTH / 4, HEIGHT / 2); // Respawn ship 1
+                        // Reset ammo and shield charge on hit/respawn for Player 1
+                        currentBullets1 = MAX_BULLETS;
+                        reloading1 = false;
+                        shieldActive1 = false;
+                        shieldRefillTime1 = System.currentTimeMillis(); // Shield immediately available
                     }
                     // Do not remove asteroid here, as it might hit ship 2
                     break; // Ship can only collide with one asteroid at a time (for simplicity)
@@ -1509,6 +1520,11 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                         // Ship 2 destroyed, but game continues if ship 1 is alive
                     } else {
                         ship2.resetPosition(3 * WIDTH / 4, HEIGHT / 2); // Respawn ship 2
+                        // Reset ammo and shield charge on hit/respawn for Player 2
+                        currentBullets2 = MAX_BULLETS;
+                        reloading2 = false;
+                        shieldActive2 = false;
+                        shieldRefillTime2 = System.currentTimeMillis(); // Shield immediately available
                     }
                     // Do not remove asteroid here, as it might hit ship 1
                     break;
@@ -1574,6 +1590,11 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                     state = GameState.GAME_OVER; // Will handle AI score saving in actionPerformed
                 } else {
                     ship1.resetPosition(WIDTH / 2, HEIGHT / 2);
+                    // Reset ammo and shield charge on hit/respawn for Player 1 (AI)
+                    currentBullets1 = MAX_BULLETS;
+                    reloading1 = false;
+                    shieldActive1 = false;
+                    shieldRefillTime1 = System.currentTimeMillis(); // Shield immediately available
                 }
                 break;
             }
