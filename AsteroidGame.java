@@ -6,7 +6,7 @@ import java.awt.geom.Path2D;
 import java.io.*;
 import java.util.ArrayList;
 import java.util.Collections; // For sorting high scores
-import java.util.Comparator;  // For sorting high scores
+// import java.util.Comparator;  // For sorting high scores
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map; // Import for Map
@@ -37,7 +37,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
 
     // Power-up constants
     private static final int FREEZE_SCORE_INTERVAL = 100;
-    private static final long FREEZE_DURATION = 3000; // 3 seconds
+    private static final long FREEZE_DURATION = 2000; // 2 seconds
     private static final int ATOM_BOOM_SCORE_INTERVAL = 200;
     private static final long ATOM_BOOM_ANIMATION_DURATION = 2000; // 2 seconds
     private static final long POWERUP_LIFETIME = 10000; // Power-ups disappear after 10 seconds
@@ -337,7 +337,14 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 }
                 player1ShipPattern = Ship.Pattern.NONE; // Default for single player
                 initGame(); // Initialize common game elements
-                spawnAsteroids(3); // Spawn 3 initial asteroids for single player
+                // Fewer initial asteroids for single player, especially on easy
+                int initialAsteroidsSinglePlayer = 3;
+                if (initialDifficulty <= 2) { // For Easy/Very Easy
+                    initialAsteroidsSinglePlayer = 1; // Start with just one asteroid
+                } else if (initialDifficulty <= 5) { // For Normal
+                    initialAsteroidsSinglePlayer = 2;
+                }
+                spawnAsteroids(initialAsteroidsSinglePlayer);
                 state = GameState.PLAYING_SINGLE;
                 gameStartTime = System.currentTimeMillis(); // Record game start time
             });
@@ -353,7 +360,14 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 player1ShipPattern = Ship.Pattern.ZEBRA; // Default for quick play
                 player2ShipPattern = Ship.Pattern.DOTTED; // Default for quick play
                 initGame(); // Make sure to init for quick play to apply patterns
-                spawnAsteroids(5); // Spawn 5 initial asteroids for multiplayer quick play
+                // Fewer initial asteroids for multiplayer quick play, especially on easy
+                int initialAsteroidsMultiplayer = 5;
+                if (initialDifficulty <= 2) { // For Easy/Very Easy
+                    initialAsteroidsMultiplayer = 3;
+                } else if (initialDifficulty <= 5) { // For Normal
+                    initialAsteroidsMultiplayer = 4;
+                }
+                spawnAsteroids(initialAsteroidsMultiplayer);
                 state = GameState.MULTIPLAYER_PLAYING; // Directly start playing
                 gameStartTime = System.currentTimeMillis(); // Record game start time
             });
@@ -376,7 +390,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 initGame(); // Re-initialize for new game
                 lives1 = jarvisLivesInput; // AI starts with configurable lives
                 player1ShipPattern = Ship.Pattern.DOTTED; // AI uses a distinct pattern
-                spawnAsteroids(7); // Spawn 7 initial asteroids for ML mode
+                spawnAsteroids(7); // Spawn 7 initial asteroids for ML mode (remains constant)
                 aiStats.totalGames++; // Increment total games for AI
                 saveAIStats();
                 state = GameState.ML_PLAYING;
@@ -498,7 +512,14 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             currentY = HEIGHT - 80; // Reposition bottom buttons to be above the copyright
             drawButton(g2d, "Start Multiplayer Game", WIDTH / 2 + 100, currentY, 250, 60, () -> { // Adjusted position
                 initGame();
-                spawnAsteroids(5); // Spawn 5 initial asteroids for multiplayer
+                // Fewer initial asteroids for multiplayer, especially on easy
+                int initialAsteroidsMultiplayer = 5;
+                if (initialDifficulty <= 2) { // For Easy/Very Easy
+                    initialAsteroidsMultiplayer = 3;
+                } else if (initialDifficulty <= 5) { // For Normal
+                    initialAsteroidsMultiplayer = 4;
+                }
+                spawnAsteroids(initialAsteroidsMultiplayer);
                 state = GameState.MULTIPLAYER_PLAYING;
                 gameStartTime = System.currentTimeMillis(); // Record game start time
             });
@@ -532,7 +553,14 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
 
             drawButton(g2d, "Start Multiplayer Game", WIDTH / 2, HEIGHT - 100, 300, 60, () -> {
                 initGame(); // Initialize common game elements for a new game session
-                spawnAsteroids(5); // Spawn 5 initial asteroids for multiplayer
+                // Fewer initial asteroids for multiplayer quick play, especially on easy
+                int initialAsteroidsMultiplayer = 5;
+                if (initialDifficulty <= 2) { // For Easy/Very Easy
+                    initialAsteroidsMultiplayer = 3;
+                } else if (initialDifficulty <= 5) { // For Normal
+                    initialAsteroidsMultiplayer = 4;
+                }
+                spawnAsteroids(initialAsteroidsMultiplayer);
                 state = GameState.MULTIPLAYER_PLAYING;
                 gameStartTime = System.currentTimeMillis(); // Record game start time
             });
@@ -1191,10 +1219,14 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
 
             // Asteroid spawning logic: more frequent with higher difficultyLevel
             // The base chance and scaling are adjusted for a smoother curve starting easier.
-            // At difficulty 1, this is 2 + 1*1 = 3% chance.
-            // At difficulty 10, this is 2 + 10*1 = 12% chance.
-            // The multiplier 1.0 (instead of 2.0 previously) makes the increase less steep.
-            if (random.nextInt(100) < (2 + difficultyLevel * 1)) {
+            // At difficulty 1, base chance is very low, making it easier.
+            // At difficulty 1: random.nextInt(100) < (0 + 1*0.5) -> < 0.5 (very rare)
+            // At difficulty 2: random.nextInt(100) < (0 + 2*0.5) -> < 1.0 (still rare)
+            // At difficulty 5: random.nextInt(100) < (0 + 5*0.5) -> < 2.5
+            // At difficulty 10: random.nextInt(100) < (0 + 10*0.5) -> < 5.0 (5% chance)
+            int spawnChance = (int) (difficultyLevel * 0.5); // Smoother, lower chance for easy levels
+            if (spawnChance < 1 && difficultyLevel >=1) spawnChance = 1; // Ensure at least a minimal chance at difficulty 1
+            if (random.nextInt(100) < spawnChance) {
                 asteroids.add(new Asteroid(random, difficultyLevel));
                 totalAsteroidsSpawned++; // Count newly spawned asteroids
             }
@@ -1343,10 +1375,24 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                     spawnAsteroids(7); // Restart ML mode with appropriate asteroids
                     state = GameState.ML_PLAYING;
                 } else if (lastPlayedState == GameState.MULTIPLAYER_PLAYING) {
-                    spawnAsteroids(5); // Restart multiplayer with appropriate asteroids
+                    // Fewer initial asteroids for multiplayer quick play, especially on easy
+                    int initialAsteroidsMultiplayer = 5;
+                    if (initialDifficulty <= 2) { // For Easy/Very Easy
+                        initialAsteroidsMultiplayer = 3;
+                    } else if (initialDifficulty <= 5) { // For Normal
+                        initialAsteroidsMultiplayer = 4;
+                    }
+                    spawnAsteroids(initialAsteroidsMultiplayer); // Restart multiplayer with appropriate asteroids
                     state = GameState.MULTIPLAYER_PLAYING;
                 } else { // Default to single player if lastPlayedState is unknown or single player
-                    spawnAsteroids(3);
+                    // Fewer initial asteroids for single player, especially on easy
+                    int initialAsteroidsSinglePlayer = 3;
+                    if (initialDifficulty <= 2) { // For Easy/Very Easy
+                        initialAsteroidsSinglePlayer = 1; // Start with just one asteroid
+                    } else if (initialDifficulty <= 5) { // For Normal
+                        initialAsteroidsSinglePlayer = 2;
+                    }
+                    spawnAsteroids(initialAsteroidsSinglePlayer);
                     state = GameState.PLAYING_SINGLE;
                 }
                 gameStartTime = System.currentTimeMillis(); // Record game start time on restart
@@ -2553,17 +2599,18 @@ class ShipAI {
     private AIStats aiStats; // Reference to the persistent AI statistics
 
     // Base AI tuning parameters (these are now constants within ShipAI)
-    private static final double BASE_ASTEROID_DANGER_DISTANCE = 80;
-    private static final double BASE_COLLISION_AVOID_ANGLE_THRESHOLD = 30;
-    private static final double BASE_SHIELD_THREAT_COUNT = 3; // Renamed
-    private static final double BASE_SHOOT_ALIGN_THRESHOLD = 7;
-    private static final double BASE_MAX_AI_APPROACH_SPEED = 5.0;
-    private static final double BASE_MIN_THRUST_DISTANCE_TO_TARGET = 70;
-    private static final double STOP_THRUST_SPEED_THRESHOLD = 1.5; // New: Speed at which AI considers stopping thrust
+    // These base values are used before applying the aggression factor.
+    private static final double BASE_ASTEROID_DANGER_DISTANCE = 100; // Increased danger distance for better evasion
+    private static final double BASE_COLLISION_AVOID_ANGLE_THRESHOLD = 45; // Wider angle to start turning
+    private static final double BASE_SHIELD_THREAT_COUNT = 2; // Shield when 2 threats are very close
+    private static final double BASE_SHOOT_ALIGN_THRESHOLD = 5; // Tighter alignment for shooting
+    private static final double BASE_MAX_AI_APPROACH_SPEED = 4.0; // Maximum speed AI will try to reach
+    private static final double BASE_MIN_THRUST_DISTANCE_TO_TARGET = 80; // Distance to stop thrusting towards target
+    private static final double STOP_THRUST_SPEED_THRESHOLD = 1.0; // Speed at which AI considers stopping thrust
 
     // Dynamic AI parameters, influenced by aggressionFactor
     private double current_asteroid_danger_distance;
-    private double current_shield_threat_count; // Renamed
+    private double current_shield_threat_count;
     private double current_shoot_align_threshold;
     private double current_min_thrust_distance_to_target;
 
@@ -2572,10 +2619,10 @@ class ShipAI {
     private double aiAggressionFactor = 1.0; // Influences AI behavior, default to neutral
 
     // Constants for mapping current_ai_score to aiAggressionFactor
-    private static final double MIN_SCORE_FOR_CAUTIOUS = -500; // Score at which AI becomes most cautious
-    private static final double MAX_SCORE_FOR_AGGRESSIVE = 500;  // Score at which AI becomes most aggressive
-    private static final double MIN_AGGRESSION_FACTOR = 0.5;    // Most cautious aggression multiplier
-    private static final double MAX_AGGRESSION_FACTOR = 2.0;     // Most aggressive aggression multiplier
+    private static final double MIN_SCORE_FOR_CAUTIOUS = -1000; // Score at which AI becomes most cautious
+    private static final double MAX_SCORE_FOR_AGGRESSIVE = 1000;  // Score at which AI becomes most aggressive
+    private static final double MIN_AGGRESSION_FACTOR = 0.3;    // Most cautious aggression multiplier (more evasive, less shooting)
+    private static final double MAX_AGGRESSION_FACTOR = 2.5;     // Most aggressive aggression multiplier (less evasive, more shooting)
 
 
     public ShipAI(Random random, int screenWidth, int screenHeight, AIStats aiStats) {
@@ -2586,7 +2633,8 @@ class ShipAI {
 
         // Initialize current_ai_score based on aggression bias for a smoother start across games
         // This makes past performance subtly influence starting aggression
-        this.current_ai_score = aiStats.getAggressionBias() * (MAX_SCORE_FOR_AGGRESSIVE - MIN_SCORE_FOR_CAUTIOUS) / (MAX_AGGRESSION_FACTOR - MIN_AGGRESSION_FACTOR);
+        // Convert aggression bias (which is already a factor) back to a score equivalent for scaling
+        this.current_ai_score = (aiStats.getAggressionBias() - MIN_AGGRESSION_FACTOR) / (MAX_AGGRESSION_FACTOR - MIN_AGGRESSION_FACTOR) * (MAX_SCORE_FOR_AGGRESSIVE - MIN_SCORE_FOR_CAUTIOUS) + MIN_SCORE_FOR_CAUTIOUS;
         this.current_ai_score = Math.max(MIN_SCORE_FOR_CAUTIOUS, Math.min(MAX_SCORE_FOR_AGGRESSIVE, this.current_ai_score));
 
         updateAggressionParameters(); // Set initial aggression parameters
@@ -2604,14 +2652,20 @@ class ShipAI {
         aiAggressionFactor = MIN_AGGRESSION_FACTOR + normalizedScore * (MAX_AGGRESSION_FACTOR - MIN_AGGRESSION_FACTOR);
 
         // Update derived parameters using the aggression factor
+        // Higher aggressionFactor means:
+        // - Smaller danger distance (takes more risks)
+        // - Fewer threats needed to shield (more reactive/proactive with shield)
+        // - Smaller shoot alignment threshold (more precise/demanding for shooting)
+        // - Smaller min thrust distance (approaches closer before stopping thrust)
         current_asteroid_danger_distance = BASE_ASTEROID_DANGER_DISTANCE / aiAggressionFactor;
-        // Aggressive AI (high aggressionFactor) triggers shield with fewer threats (smaller current_shield_threat_count)
-        current_shield_threat_count = BASE_SHIELD_THREAT_COUNT / aiAggressionFactor; // Renamed
+        current_shield_threat_count = BASE_SHIELD_THREAT_COUNT / aiAggressionFactor;
         current_shoot_align_threshold = BASE_SHOOT_ALIGN_THRESHOLD / aiAggressionFactor;
         current_min_thrust_distance_to_target = BASE_MIN_THRUST_DISTANCE_TO_TARGET / aiAggressionFactor;
 
-        // Ensure shield threat count is at least 1
+        // Ensure shield threat count is at least 1 (can't shield on zero threats)
         current_shield_threat_count = Math.max(1, current_shield_threat_count);
+        // Ensure shoot align threshold is not too small
+        current_shoot_align_threshold = Math.max(1, current_shoot_align_threshold);
     }
 
 
@@ -2661,18 +2715,22 @@ class ShipAI {
         boolean shoot = false;
         boolean shield = false; // Renamed
 
-        // --- Shield Logic (formerly Hyperspace) ---
+        // --- Shield Logic ---
         // Count threatening asteroids based on dynamically adjusted danger distance
         int threateningAsteroids = 0;
         for (Asteroid asteroid : asteroids) {
             double dist = Math.sqrt(Math.pow(ship.x - asteroid.x, 2) + Math.pow(ship.y - asteroid.y, 2));
             if (dist < current_asteroid_danger_distance * 1.5) { // A bit wider threat radius for shield
-                threateningAsteroids++;
+                // Also consider if asteroid is moving towards ship
+                double dotProduct = (asteroid.dx * (ship.x - asteroid.x) + asteroid.dy * (ship.y - asteroid.y));
+                if (dotProduct > 0) { // If asteroid velocity is generally towards the ship
+                    threateningAsteroids++;
+                }
             }
         }
         // If many threats and shield is available, use it (threshold is dynamic)
-        if (threateningAsteroids >= current_shield_threat_count && !shieldActive && now >= shieldRefillTime) { // Renamed
-            shield = true; // Renamed
+        if (threateningAsteroids >= current_shield_threat_count && !shieldActive && now >= shieldRefillTime) {
+            shield = true;
         }
 
         if (ship.isInvincible()) { // If invincible (from shield or respawn), just thrust away from center
@@ -2682,7 +2740,7 @@ class ShipAI {
             else if (ship.x > screenWidth * 0.8) turnLeft = true;
             else if (ship.y < screenHeight * 0.2) turnRight = true;
             else if (ship.y > screenHeight * 0.8) turnLeft = true;
-            return new AIAction(thrust, turnLeft, turnRight, false, shield); // Renamed
+            return new AIAction(thrust, turnLeft, turnRight, false, shield);
         }
 
         // --- Avoidance Logic (High Priority) ---
@@ -2691,44 +2749,54 @@ class ShipAI {
 
         for (Asteroid asteroid : asteroids) {
             double dist = Math.sqrt(Math.pow(ship.x - asteroid.x, 2) + Math.pow(ship.y - asteroid.y, 2));
-            // Use dynamically adjusted current_asteroid_danger_distance
+            // Only consider threatening if within dynamic danger distance
             if (dist < current_asteroid_danger_distance && dist < minThreatDistance) {
-                closestThreat = asteroid;
-                minThreatDistance = dist;
+                // Check if asteroid is generally moving towards the ship
+                double dotProduct = (asteroid.dx * (ship.x - asteroid.x) + asteroid.dy * (ship.y - asteroid.y));
+                if (dotProduct > 0) { // If positive, asteroid is moving towards ship
+                    closestThreat = asteroid;
+                    minThreatDistance = dist;
+                }
             }
         }
 
         if (closestThreat != null) {
-            // Calculate angle to asteroid
+            // Calculate angle from ship to closest threat
             double angleToAsteroid = Math.toDegrees(Math.atan2(closestThreat.y - ship.y, closestThreat.x - ship.x));
             angleToAsteroid = (angleToAsteroid + 360) % 360;
-
-            // Calculate angle directly opposite to asteroid for evasion
-            double evasionAngle = (angleToAsteroid + 180) % 360;
 
             // Calculate current heading of the ship
             double shipHeading = (ship.angle + 360) % 360;
 
-            // Check if ship is pointing towards the asteroid or in its path
+            // Difference between ship's heading and direction to asteroid
             double angleDiff = Math.abs(shipHeading - angleToAsteroid);
             if (angleDiff > 180) angleDiff = 360 - angleDiff; // Smallest angle difference
 
-            // If an asteroid is close and threatening, try to evade
-            if (minThreatDistance < current_asteroid_danger_distance && angleDiff < BASE_COLLISION_AVOID_ANGLE_THRESHOLD) { // Collision avoid threshold remains base
-                thrust = true; // Thrust away
-                // Turn away from the asteroid
-                double turnDiff = (evasionAngle - shipHeading + 360) % 360;
-                if (turnDiff > 180) { // If turning left is shorter
+            // If an asteroid is close AND ship is heading towards it (within threshold)
+            if (minThreatDistance < current_asteroid_danger_distance && angleDiff < BASE_COLLISION_AVOID_ANGLE_THRESHOLD) {
+                thrust = true; // Thrust to change direction/move away
+
+                // Calculate two evasion angles: 90 degrees left and 90 degrees right from threat direction
+                double evasionAngleLeft = (angleToAsteroid - 90 + 360) % 360;
+                double evasionAngleRight = (angleToAsteroid + 90 + 360) % 360;
+
+                // Determine which evasion angle is closer to ship's current heading
+                double diffLeft = Math.abs(shipHeading - evasionAngleLeft);
+                if (diffLeft > 180) diffLeft = 360 - diffLeft;
+
+                double diffRight = Math.abs(shipHeading - evasionAngleRight);
+                if (diffRight > 180) diffRight = 360 - diffRight;
+
+                if (diffLeft < diffRight) {
                     turnLeft = true;
-                } else { // If turning right is shorter
+                } else {
                     turnRight = true;
                 }
-                return new AIAction(thrust, turnLeft, turnRight, shoot, shield); // Renamed
+                return new AIAction(thrust, turnLeft, turnRight, shoot, shield);
             }
         }
 
-        // --- Offensive Logic (Medium Priority) ---
-        // Find closest asteroid to shoot at if no immediate threat
+        // --- Offensive Logic (Medium Priority) if no immediate threats ---
         Asteroid targetAsteroid = null;
         double minDistance = Double.MAX_VALUE;
         for (Asteroid asteroid : asteroids) {
@@ -2756,13 +2824,12 @@ class ShipAI {
             }
 
             // Conditional thrusting:
-            // Thrust if not too close to the asteroid and not already moving very fast.
             double currentSpeed = Math.sqrt(ship.dx * ship.dx + ship.dy * ship.dy);
 
             // AI decides to thrust or stop based on distance to target and current speed
             if (minDistance > current_min_thrust_distance_to_target) {
                 // If far from target and not too fast, thrust towards it
-                if (currentSpeed < BASE_MAX_AI_APPROACH_SPEED) {
+                if (currentSpeed < BASE_MAX_AI_APPROACH_SPEED * aiAggressionFactor) { // Higher aggression -> higher max speed
                     thrust = true;
                 } else {
                     // If far from target but already fast, stop thrusting to coast
@@ -2771,7 +2838,8 @@ class ShipAI {
             } else {
                 // If close to target:
                 // Only thrust if speed is very low to make fine adjustments, otherwise stop.
-                if (currentSpeed < STOP_THRUST_SPEED_THRESHOLD) { // New condition
+                // Aggressive AI will allow a slightly higher speed before stopping
+                if (currentSpeed < STOP_THRUST_SPEED_THRESHOLD * aiAggressionFactor) {
                     thrust = true;
                 } else {
                     thrust = false; // Stop thrusting to slow down using friction
@@ -2779,7 +2847,6 @@ class ShipAI {
             }
 
             // Shoot if aligned and bullets available
-            // Use dynamically adjusted current_shoot_align_threshold
             if (Math.abs(angleDifference) < current_shoot_align_threshold || Math.abs(angleDifference - 360) < current_shoot_align_threshold) {
                 if (currentBullets > 0 && !reloading && (now - lastShotTime > bulletCooldown)) {
                     shoot = true;
@@ -2789,31 +2856,30 @@ class ShipAI {
         } else {
             // If no asteroids, AI should not necessarily always thrust.
             // It can drift, or make small adjustments to its position.
-            // For now, let's keep it simple: if no asteroids, minimize movement.
-            // The AI only thrusts if it's very slow and wants to get moving
+            // For now, if no asteroids:
+            // 1. If speed is very low, briefly thrust to prevent getting stuck
             double currentSpeed = Math.sqrt(ship.dx * ship.dx + ship.dy * ship.dy);
-            if (currentSpeed < 1.0) { // If very slow, might thrust briefly to get moving
+            if (currentSpeed < 0.5) { // If almost stationary
                 thrust = true;
-                // Add some random turning to explore or prevent getting stuck
-                if (random.nextInt(100) < 5) { // 5% chance to gently turn
-                    if (random.nextBoolean()) turnLeft = true;
-                    else turnRight = true;
-                }
-            } else {
-                thrust = false; // Drift if already moving at a reasonable speed
             }
 
-            // If near edge and no asteroids, try to move away from edge.
-            if (ship.x < screenWidth * 0.1 || ship.x > screenWidth * 0.9 || ship.y < screenHeight * 0.1 || ship.y > screenHeight * 0.9) {
+            // 2. If near edge, try to move towards center
+            double centerX = screenWidth / 2.0;
+            double centerY = screenHeight / 2.0;
+            double distToCenter = Math.sqrt(Math.pow(ship.x - centerX, 2) + Math.pow(ship.y - centerY, 2));
+            double edgeThreshold = Math.min(screenWidth, screenHeight) * 0.3; // 30% from edge
+            if (distToCenter > edgeThreshold) {
+                double angleToCenter = Math.toDegrees(Math.atan2(centerY - ship.y, centerX - ship.x));
+                angleToCenter = (angleToCenter + 360) % 360;
+                double shipAngle = (ship.angle + 360) % 360;
+                double angleDifference = (angleToCenter - shipAngle + 360) % 360;
+
+                if (angleDifference > 180) { turnLeft = true; } else { turnRight = true; }
                 thrust = true;
-                if (ship.x < screenWidth * 0.1) turnRight = true;
-                else if (ship.x > screenWidth * 0.9) turnLeft = true;
-                if (ship.y < screenHeight * 0.1) turnRight = true; // Rotate to go downwards
-                else if (ship.y > screenHeight * 0.9) turnLeft = true; // Rotate to go upwards
             }
         }
 
-        return new AIAction(thrust, turnLeft, turnRight, shoot, shield); // Renamed
+        return new AIAction(thrust, turnLeft, turnRight, shoot, shield);
     }
 
     /**
@@ -2830,6 +2896,9 @@ class ShipAI {
             current_ai_score -= 100; // Bad feedback: -100
         }
 
+        // Clamp the AI score to prevent extreme aggression factors
+        current_ai_score = Math.max(MIN_SCORE_FOR_CAUTIOUS, Math.min(MAX_SCORE_FOR_AGGRESSIVE, current_ai_score));
+
         // Update aggression parameters immediately after receiving feedback
         updateAggressionParameters();
 
@@ -2839,12 +2908,10 @@ class ShipAI {
                           current_asteroid_danger_distance,
                           current_min_thrust_distance_to_target,
                           current_shoot_align_threshold,
-                          current_shield_threat_count); // Renamed
+                          current_shield_threat_count);
 
-        // Optionally, you might want to save the `current_ai_score` or an average `aiAggressionFactor`
-        // to `aiStats.aggressionBias` at the end of the game for long-term learning.
-        // For now, it only affects the current game session.
-        aiStats.setAggressionBias(aiAggressionFactor); // Store current aggression as bias for next game
+        // Store current aggression as bias for next game
+        aiStats.setAggressionBias(aiAggressionFactor);
     }
 }
 
