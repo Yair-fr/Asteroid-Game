@@ -9,6 +9,8 @@ import java.util.Collections; // For sorting high scores
 import java.util.Comparator;  // For sorting high scores
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map; // Import for Map
+import java.util.HashMap; // Import for HashMap
 import java.util.Random;
 import java.awt.geom.AffineTransform;
 
@@ -33,6 +35,13 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     // 1.0 means no slowdown. 0.0 means they stop.
     private static final double ASTEROID_SLOWDOWN_MULTIPLIER = 0.5;
 
+    // Power-up constants
+    private static final int FREEZE_SCORE_INTERVAL = 100;
+    private static final long FREEZE_DURATION = 2000; // 2 seconds
+    private static final int ATOM_BOOM_SCORE_INTERVAL = 150;
+    private static final long ATOM_BOOM_ANIMATION_DURATION = 2000; // 2 seconds
+    private static final long POWERUP_LIFETIME = 10000; // Power-ups disappear after 10 seconds
+
     // Starfield constants for the start screen
     private static final int MAX_STARS = 150; // Number of stars in the background
     private final ArrayList<Star> stars = new ArrayList<>(); // Starfield for background
@@ -43,6 +52,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     ArrayList<Bullet> bullets = new ArrayList<>();
     ArrayList<Asteroid> asteroids = new ArrayList<>();
     ArrayList<PopEffect> effects = new ArrayList<>();
+    ArrayList<PowerUp> powerUps = new ArrayList<>(); // List of active power-ups
     boolean up1, left1, right1; // Player 1 movement controls
     boolean up2, left2, right2; // Player 2 movement controls
 
@@ -78,6 +88,14 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     private boolean shieldActive2 = false;
     private long shieldActivationTime2 = 0;
     private long shieldRefillTime2 = 0;
+
+    // Power-up specific state variables
+    private long freezeEndTime = 0;
+    private boolean atomBoomActive = false;
+    private long atomBoomStartTime = 0;
+    private double atomBoomCenterX, atomBoomCenterY;
+    private int lastFreezeScoreTrigger = 0;
+    private int lastAtomBoomScoreTrigger = 0;
 
     // Game Statistics variables
     private long gameStartTime;
@@ -124,6 +142,9 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     // Jarvis (AI) specific configurable lives
     private int jarvisLivesInput = INITIAL_LIVES;
 
+    // Map to store button bounds and their corresponding actions for click handling
+    private final Map<Rectangle, Runnable> buttonActions = new HashMap<>();
+
 
     // Random generator for the game
     private final Random random = new Random();
@@ -162,6 +183,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         bullets.clear();
         asteroids.clear(); // Clear asteroids here, they'll be spawned by game mode specific logic
         effects.clear();
+        powerUps.clear(); // Clear power-ups on new game
         score = 0; // Reset score (will be for current player in single, or combined if needed)
         difficultyLevel = initialDifficulty; // Initialize difficulty with user selection
         lives1 = INITIAL_LIVES;
@@ -187,6 +209,14 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         shieldActive2 = false; // Renamed
         shieldActivationTime2 = 0; // Renamed
         shieldRefillTime2 = System.currentTimeMillis(); // Shield starts full (Renamed)
+
+        // Reset power-up specific states
+        freezeEndTime = 0;
+        atomBoomActive = false;
+        atomBoomStartTime = 0;
+        lastFreezeScoreTrigger = 0;
+        lastAtomBoomScoreTrigger = 0;
+
 
         up1 = left1 = right1 = false; // Movement flags
         up2 = left2 = right2 = false;
@@ -288,8 +318,17 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             g2d.setFont(new Font("Arial", Font.BOLD, 60)); // Larger title
             drawCenteredString(g2d, "ASTEROID GAME", new Font("Arial", Font.BOLD, 60), HEIGHT / 3 - 50);
 
+            // Button dimensions reduced by 20%
+            int buttonWidth = (int)(350 * 0.8);
+            int buttonHeight = (int)(50 * 0.8);
+            int smallButtonHeight = (int)(40 * 0.8);
+
+            // Calculate vertical spacing
+            int spacing = (int)(70 * 0.8); // Reduced spacing
+            int initialY = HEIGHT / 2 - 40; // Initial Y for the first button
+
             // Single Player button
-            drawButton(g2d, "Single Player", WIDTH / 2, HEIGHT / 2 - 40, 350, 50, () -> {
+            drawButton(g2d, "Single Player", WIDTH / 2, initialY, buttonWidth, buttonHeight, () -> {
                 tempUserNameInput = JOptionPane.showInputDialog(this, "Enter your username:", userName1);
                 if (tempUserNameInput != null && !tempUserNameInput.trim().isEmpty()) {
                     userName1 = tempUserNameInput.trim();
@@ -304,12 +343,12 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             });
 
             // Multiplayer (Customize Names) button
-            drawButton(g2d, "Multiplayer (Customize Names)", WIDTH / 2, HEIGHT / 2 + 30, 350, 50, () -> {
+            drawButton(g2d, "Multiplayer (Customize Names)", WIDTH / 2, initialY + spacing, buttonWidth, buttonHeight, () -> {
                 state = GameState.MULTIPLAYER_SETUP_NAMES;
             });
 
             // New: Multiplayer (Quick Play) button - directly to QR display
-            drawButton(g2d, "Multiplayer (Quick Play)", WIDTH / 2, HEIGHT / 2 + 100, 350, 50, () -> {
+            drawButton(g2d, "Multiplayer (Quick Play)", WIDTH / 2, initialY + 2 * spacing, buttonWidth, buttonHeight, () -> {
                 // Usernames remain default ("Player 1", "Player 2") unless previously changed
                 player1ShipPattern = Ship.Pattern.ZEBRA; // Default for quick play
                 player2ShipPattern = Ship.Pattern.DOTTED; // Default for quick play
@@ -320,7 +359,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             });
 
             // ML Mode button
-            drawButton(g2d, "ML Mode (Jarvis)", WIDTH / 2, HEIGHT / 2 + 170, 350, 50, () -> {
+            drawButton(g2d, "ML Mode (Jarvis)", WIDTH / 2, initialY + 3 * spacing, buttonWidth, buttonHeight, () -> {
                 String inputLives = JOptionPane.showInputDialog(this, "Enter Jarvis's initial lives:", String.valueOf(jarvisLivesInput));
                 if (inputLives != null && !inputLives.trim().isEmpty()) {
                     try {
@@ -346,25 +385,25 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
 
 
             // Button to select difficulty
-            drawButton(g2d, "Difficulty: " + initialDifficulty + " (Click to Change)", WIDTH / 2, HEIGHT / 2 + 240, 350, 40, this::showDifficultySelection);
+            drawButton(g2d, "Difficulty: " + initialDifficulty + " (Click to Change)", WIDTH / 2, initialY + 4 * spacing, buttonWidth, smallButtonHeight, this::showDifficultySelection);
 
 
-            // Display High Score on Start screen - now only top 3
-            g2d.setFont(new Font("Arial", Font.PLAIN, 24));
-            drawCenteredString(g2d, "High Scores:", new Font("Arial", Font.BOLD, 28), HEIGHT / 2 + 340);
-            int scoreY = HEIGHT / 2 + 370;
-            for (int i = 0; i < Math.min(highScores.size(), 3); i++) { // Display top 3 scores
-                HighScoreEntry entry = highScores.get(i);
-                String scoreText = entry.getUserName() + ": " + entry.getScore() + " (D:" + entry.getDifficulty() + ")";
-                if (entry.isAI()) {
-                    scoreText += " [AI v" + entry.getAiVersion() + "]";
-                }
-                drawCenteredString(g2d, (i + 1) + ". " + scoreText,
-                                   new Font("Arial", Font.PLAIN, 20), scoreY + (i * 25));
-            }
+            // Removed High Score display from Start screen as per request
+            // g2d.setFont(new Font("Arial", Font.PLAIN, 24));
+            // drawCenteredString(g2d, "High Scores:", new Font("Arial", Font.BOLD, 28), initialY + 5 * spacing + 30);
+            // int scoreY = initialY + 5 * spacing + 60;
+            // for (int i = 0; i < Math.min(highScores.size(), 3); i++) { // Display top 3 scores
+            //     HighScoreEntry entry = highScores.get(i);
+            //     String scoreText = entry.getUserName() + ": " + entry.getScore() + " (D:" + entry.getDifficulty() + ")";
+            //     if (entry.isAI()) {
+            //         scoreText += " [AI v" + entry.getAiVersion() + "]";
+            //     }
+            //     drawCenteredString(g2d, (i + 1) + ". " + scoreText,
+            //                        new Font("Arial", Font.PLAIN, 20), scoreY + (i * 25));
+            // }
 
-            // New button to view all high scores
-            drawButton(g2d, "View All Scores", WIDTH / 2, HEIGHT / 2 + 290, 250, 40, this::showAllHighScores);
+            // New button to view all high scores, repositioned slightly
+            drawButton(g2d, "View All Scores", WIDTH / 2, initialY + 5 * spacing, (int)(250*0.8), smallButtonHeight, this::showAllHighScores);
 
 
             g2d.setFont(new Font("Arial", Font.PLAIN, 16));
@@ -506,17 +545,37 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             }
 
             for (Bullet b : bullets) b.draw(g2d);
-            for (Asteroid a : asteroids) a.draw(g2d); // This line ensures asteroids are drawn
             
-            // Determine asteroid speed multiplier based on shield active status
-            double currentAsteroidSpeedMultiplier = 1.0; // Default to normal speed
-            if (shieldActive1 || shieldActive2) { // Check both players for slowdown effect
-                currentAsteroidSpeedMultiplier = ASTEROID_SLOWDOWN_MULTIPLIER;
+            // Apply Freeze background effect
+            if (System.currentTimeMillis() < freezeEndTime) {
+                g2d.setColor(new Color(173, 216, 230, 100)); // Light blue translucent
+                g2d.fillRect(0, 0, WIDTH, HEIGHT);
             }
-            // Update asteroids with the current speed multiplier
-            for (Asteroid a : asteroids) {
-                a.update(currentAsteroidSpeedMultiplier);
+
+            for (Asteroid a : asteroids) a.draw(g2d);
+            
+            // Draw power-ups
+            for (PowerUp p : powerUps) p.draw(g2d);
+
+
+            // Draw AtomBOOM animation
+            if (atomBoomActive) {
+                long elapsedTime = System.currentTimeMillis() - atomBoomStartTime;
+                double progress = (double) elapsedTime / ATOM_BOOM_ANIMATION_DURATION; // 0 to 1
+                if (progress > 1.0) progress = 1.0;
+
+                int maxRadius = (int) Math.sqrt(WIDTH * WIDTH + HEIGHT * HEIGHT); // Covers entire screen
+                int currentRadius = (int) (maxRadius * progress);
+
+                // Start green and fade out
+                int alpha = (int) (200 * (1.0 - progress)); // From opaque to transparent
+                if (alpha < 0) alpha = 0;
+                g2d.setColor(new Color(0, 255, 0, alpha)); // Light green translucent
+
+                g2d.fillOval((int) atomBoomCenterX - currentRadius, (int) atomBoomCenterY - currentRadius,
+                             currentRadius * 2, currentRadius * 2);
             }
+
 
             for (PopEffect p : effects) p.draw(g2d);
 
@@ -691,7 +750,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             drawCenteredString(g2d, "GAME OVER", new Font("Arial", Font.BOLD, 48), HEIGHT / 3);
             drawCenteredString(g2d, "Final Score: " + score, new Font("Arial", Font.PLAIN, 24), HEIGHT / 2);
 
-            // Display High Score - now only top 3
+            // High Score display on Game Over screen - now only top 3
             g2d.setFont(new Font("Arial", Font.PLAIN, 24));
             if (!highScores.isEmpty()) {
                 drawCenteredString(g2d, "High Scores:", new Font("Arial", Font.BOLD, 28), HEIGHT / 2 + 50);
@@ -706,15 +765,24 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                                        new Font("Arial", Font.PLAIN, 20), scoreY + (i * 25));
                 }
             }
+            
+            // Adjusted button positions to avoid overlay on Game Over screen
+            int buttonRow1Y = HEIGHT - 180; // First row of buttons
+            int buttonRow2Y = HEIGHT - 120; // Second row of buttons
+            int buttonWidth = 250;
+            int buttonHeight = 40;
+            int buttonSpacing = 20; // Horizontal spacing between buttons
 
-            // Moved "View All Scores" button to the bottom left
-            drawButton(g2d, "View All Scores", WIDTH / 4, HEIGHT - 100, 250, 40, this::showAllHighScores);
+            // Row 1 buttons
+            drawButton(g2d, "View All Scores", WIDTH / 2 - (buttonWidth + buttonSpacing), buttonRow1Y, buttonWidth, buttonHeight, this::showAllHighScores);
+            drawButton(g2d, "Game Statistics", WIDTH / 2, buttonRow1Y, buttonWidth, buttonHeight, this::showGameStatistics);
+            drawButton(g2d, "Back to Main Menu", WIDTH / 2 + (buttonWidth + buttonSpacing), buttonRow1Y, buttonWidth, buttonHeight, () -> {
+                initGame(); // Re-initialize state, but don't spawn asteroids
+                state = GameState.START;
+            });
 
-            // New: Game Statistics button
-            drawButton(g2d, "Game Statistics", WIDTH / 2, HEIGHT - 100, 250, 40, this::showGameStatistics);
-
-            // New: View Visual Statistics button
-            drawButton(g2d, "View Visual Statistics", WIDTH / 2, HEIGHT - 50, 250, 40, () -> {
+            // Row 2 button
+            drawButton(g2d, "View Visual Statistics", WIDTH / 2, buttonRow2Y, buttonWidth, buttonHeight, () -> {
                 // Pass relevant statistics to the new dialog
                 StatisticsDialog statsDialog = new StatisticsDialog(
                     (JFrame) SwingUtilities.getWindowAncestor(this), // Parent frame
@@ -727,13 +795,6 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                     state == GameState.MULTIPLAYER_PLAYING
                 );
                 statsDialog.setVisible(true);
-            });
-
-
-            // Moved "Back to Main Menu" button to the bottom right
-            drawButton(g2d, "Back to Main Menu", 3 * WIDTH / 4, HEIGHT - 100, 250, 50, () -> {
-                initGame(); // Re-initialize state, but don't spawn asteroids
-                state = GameState.START;
             });
 
 
@@ -785,7 +846,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         g2d.drawRoundRect(x, y, width, height, 15, 15);
 
         g2d.setColor(Color.WHITE);
-        g2d.setFont(new Font("Arial", Font.BOLD, 20));
+        g2d.setFont(new Font("Arial", Font.BOLD, (int)(20 * 0.8))); // Reduced font size with button
         FontMetrics metrics = g2d.getFontMetrics();
         int textX = x + (width - metrics.stringWidth(text)) / 2;
         int textY = y + ((height - metrics.getHeight()) / 2) + metrics.getAscent();
@@ -794,8 +855,6 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         // Store button bounds and action for mouse click handling
         buttonActions.put(new Rectangle(x, y, width, height), action);
     }
-
-    private final java.util.Map<Rectangle, Runnable> buttonActions = new java.util.HashMap<>();
 
     /**
      * Draws a simple 'X' button for closing the application in the top-right corner
@@ -918,8 +977,8 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 }
 
                 if (aiAction.shield && !player1ShieldKeyHeld) { // Renamed aiAction.hyperspace to aiAction.shield
-                    shieldRequested1 = true; // Renamed hyperspaceRequested1
-                    player1ShieldKeyHeld = true; // Renamed player1HyperspaceKeyHeld
+                    shieldRequested1 = true; // Request shield for the next tick (Renamed)
+                    player1ShieldKeyHeld = true; // Mark key as held (Renamed)
                 } else if (!aiAction.shield) { // Renamed aiAction.hyperspace
                     player1ShieldKeyHeld = false; // Renamed player1HyperspaceKeyHeld
                 }
@@ -1025,7 +1084,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 }
 
                 // Deactivate shield after duration for Player 2 (formerly Hyperspace)
-                if (shieldActive2 && now - shieldActivationTime2 > SHIELD_ACTIVE_DURATION) { // Renamed hyperSpeedActive2, hyperspaceActivationTime2, HYPER_ACTIVE_DURATION
+                if (shieldActive2 && now - shieldActivationTime2 > SHIELD_ACTIVE_DURATION) { // Renamed hyperSpeedActive2, hyperspaceActivationTime1, HYPER_ACTIVE_DURATION
                     shieldActive2 = false; // Renamed hyperSpeedActive2
                     shieldRefillTime2 = now + SHIELD_RECHARGE_DURATION; // Renamed hyperFuelRefillTime2, HYPER_RECHARGE_DURATION
                     totalShieldDuration2 += SHIELD_ACTIVE_DURATION; // Add duration to total (Renamed)
@@ -1039,10 +1098,13 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
 
             bullets.forEach(b -> b.update(WIDTH, HEIGHT));
             
-            // Determine asteroid speed multiplier based on shield active status
+            // Determine asteroid speed multiplier based on shield active status OR Freeze
             double currentAsteroidSpeedMultiplier = 1.0; // Default to normal speed
             if (shieldActive1 || shieldActive2) { // Check both players for slowdown effect
                 currentAsteroidSpeedMultiplier = ASTEROID_SLOWDOWN_MULTIPLIER;
+            }
+            if (now < freezeEndTime) { // If Freeze is active, override speed to 0 (or very close to 0)
+                currentAsteroidSpeedMultiplier = 0.0;
             }
             // Update asteroids with the current speed multiplier
             for (Asteroid a : asteroids) {
@@ -1050,6 +1112,56 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             }
 
             effects.forEach(PopEffect::update);
+
+            // Update Power-ups: Check collisions and lifetime
+            Iterator<PowerUp> powerUpIterator = powerUps.iterator();
+            while (powerUpIterator.hasNext()) {
+                PowerUp powerUp = powerUpIterator.next();
+                // Check for lifetime expiration
+                if (now - powerUp.creationTime > POWERUP_LIFETIME) {
+                    powerUpIterator.remove(); // Remove if lifetime expired
+                    continue; // Skip collision check for expired power-up
+                }
+
+                if (powerUp.getBounds().intersects(ship1.getBounds())) {
+                    applyPowerUpEffect(powerUp.type, ship1); // Apply effect for Player 1
+                    powerUpIterator.remove(); // Remove power-up after collection
+                } else if (state == GameState.MULTIPLAYER_PLAYING && powerUp.getBounds().intersects(ship2.getBounds())) {
+                    applyPowerUpEffect(powerUp.type, ship2); // Apply effect for Player 2
+                    powerUpIterator.remove(); // Remove power-up after collection
+                }
+            }
+
+            // AtomBOOM collision detection during its active animation
+            if (atomBoomActive) {
+                long elapsedTime = now - atomBoomStartTime;
+                double progress = (double) elapsedTime / ATOM_BOOM_ANIMATION_DURATION;
+                if (progress > 1.0) {
+                    atomBoomActive = false; // End the animation once duration is over
+                } else {
+                    int maxRadius = (int) Math.sqrt(WIDTH * WIDTH + HEIGHT * HEIGHT);
+                    int currentRadius = (int) (maxRadius * progress);
+                    
+                    // Create a circular bounds for the current blast radius
+                    Ellipse2D currentBlastBounds = new Ellipse2D.Double(
+                        atomBoomCenterX - currentRadius,
+                        atomBoomCenterY - currentRadius,
+                        currentRadius * 2,
+                        currentRadius * 2
+                    );
+
+                    Iterator<Asteroid> asteroidBlastIterator = asteroids.iterator();
+                    while (asteroidBlastIterator.hasNext()) {
+                        Asteroid asteroid = asteroidBlastIterator.next();
+                        // Check if the asteroid's bounds intersect with the blast radius
+                        if (currentBlastBounds.intersects(asteroid.getBounds())) {
+                            effects.add(new PopEffect(asteroid.x, asteroid.y, random)); // Add pop effect
+                            asteroidBlastIterator.remove(); // Remove asteroid
+                        }
+                    }
+                }
+            }
+
 
             if (state == GameState.PLAYING_SINGLE) {
                 checkCollisionsSinglePlayer();
@@ -1085,6 +1197,17 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 asteroids.add(new Asteroid(random, difficultyLevel));
                 totalAsteroidsSpawned++; // Count newly spawned asteroids
             }
+
+            // Power-up spawning based on score
+            if (score >= lastFreezeScoreTrigger + FREEZE_SCORE_INTERVAL) { // Ensure it triggers exactly at intervals
+                powerUps.add(new PowerUp(PowerUp.Type.FREEZE, random, WIDTH, HEIGHT));
+                lastFreezeScoreTrigger = score;
+            }
+            if (score >= lastAtomBoomScoreTrigger + ATOM_BOOM_SCORE_INTERVAL) {
+                powerUps.add(new PowerUp(PowerUp.Type.ATOM_BOOM, random, WIDTH, HEIGHT));
+                lastAtomBoomScoreTrigger = score;
+            }
+
 
             // Check for game over (multiplayer condition)
             if (state == GameState.MULTIPLAYER_PLAYING && lives1 <= 0 && lives2 <= 0) {
@@ -1130,6 +1253,30 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         repaint(); // Request a repaint of the panel
         buttonActions.clear(); // Clear actions after each repaint
     }
+
+    /**
+     * Applies the effect of a collected power-up.
+     * @param type The type of power-up.
+     * @param collectingShip The ship that collected the power-up.
+     */
+    private void applyPowerUpEffect(PowerUp.Type type, Ship collectingShip) {
+        long now = System.currentTimeMillis();
+        switch (type) {
+            case FREEZE:
+                freezeEndTime = now + FREEZE_DURATION;
+                System.out.println("Freeze activated!");
+                break;
+            case ATOM_BOOM:
+                // Asteroids will be cleared gradually based on collision with expanding circle
+                atomBoomActive = true;
+                atomBoomStartTime = now;
+                atomBoomCenterX = collectingShip.x;
+                atomBoomCenterY = collectingShip.y;
+                System.out.println("AtomBOOM activated!");
+                break;
+        }
+    }
+
 
     /**
      * Handles key press events for player input.
@@ -1454,6 +1601,10 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         bullets.removeIf(b -> !b.onScreen(WIDTH, HEIGHT));
         asteroids.removeIf(a -> !a.onScreen(WIDTH, HEIGHT));
         effects.removeIf(p -> p.life <= 0);
+        // This line was already removing power-ups that drift off-screen,
+        // but now we also need to consider their lifetime.
+        // The lifetime check is now integrated directly in actionPerformed.
+        // powerUps.removeIf(p -> !p.onScreen(WIDTH, HEIGHT)); 
     }
 
     /**
@@ -2376,6 +2527,7 @@ class ShipAI {
     private static final double BASE_SHOOT_ALIGN_THRESHOLD = 7;
     private static final double BASE_MAX_AI_APPROACH_SPEED = 5.0;
     private static final double BASE_MIN_THRUST_DISTANCE_TO_TARGET = 70;
+    private static final double STOP_THRUST_SPEED_THRESHOLD = 1.5; // New: Speed at which AI considers stopping thrust
 
     // Dynamic AI parameters, influenced by aggressionFactor
     private double current_asteroid_danger_distance;
@@ -2573,17 +2725,26 @@ class ShipAI {
 
             // Conditional thrusting:
             // Thrust if not too close to the asteroid and not already moving very fast.
-            // This prevents the AI from continually thrusting and colliding with asteroids.
             double currentSpeed = Math.sqrt(ship.dx * ship.dx + ship.dy * ship.dy);
-            // Use dynamically adjusted current_min_thrust_distance_to_target
-            if (minDistance > current_min_thrust_distance_to_target && currentSpeed < BASE_MAX_AI_APPROACH_SPEED) {
-                thrust = true;
-            } else if (minDistance <= current_min_thrust_distance_to_target && currentSpeed > 0.5) {
-                // If very close and still moving, stop thrusting to slow down using friction.
-                // This simulates "braking" by not accelerating.
-                thrust = false;
-            }
 
+            // AI decides to thrust or stop based on distance to target and current speed
+            if (minDistance > current_min_thrust_distance_to_target) {
+                // If far from target and not too fast, thrust towards it
+                if (currentSpeed < BASE_MAX_AI_APPROACH_SPEED) {
+                    thrust = true;
+                } else {
+                    // If far from target but already fast, stop thrusting to coast
+                    thrust = false;
+                }
+            } else {
+                // If close to target:
+                // Only thrust if speed is very low to make fine adjustments, otherwise stop.
+                if (currentSpeed < STOP_THRUST_SPEED_THRESHOLD) { // New condition
+                    thrust = true;
+                } else {
+                    thrust = false; // Stop thrusting to slow down using friction
+                }
+            }
 
             // Shoot if aligned and bullets available
             // Use dynamically adjusted current_shoot_align_threshold
@@ -2594,11 +2755,29 @@ class ShipAI {
             }
 
         } else {
-            // If no asteroids, always thrust to explore, but occasionally turn to find new ones
-            thrust = true; // Always thrust to keep moving and find new asteroids
-            if (random.nextInt(100) < 10) { // 10% chance to gently turn to explore
-                if (random.nextBoolean()) turnLeft = true;
-                else turnRight = true;
+            // If no asteroids, AI should not necessarily always thrust.
+            // It can drift, or make small adjustments to its position.
+            // For now, let's keep it simple: if no asteroids, minimize movement.
+            // The AI only thrusts if it's very slow and wants to get moving
+            double currentSpeed = Math.sqrt(ship.dx * ship.dx + ship.dy * ship.dy);
+            if (currentSpeed < 1.0) { // If very slow, might thrust briefly to get moving
+                thrust = true;
+                // Add some random turning to explore or prevent getting stuck
+                if (random.nextInt(100) < 5) { // 5% chance to gently turn
+                    if (random.nextBoolean()) turnLeft = true;
+                    else turnRight = true;
+                }
+            } else {
+                thrust = false; // Drift if already moving at a reasonable speed
+            }
+
+            // If near edge and no asteroids, try to move away from edge.
+            if (ship.x < screenWidth * 0.1 || ship.x > screenWidth * 0.9 || ship.y < screenHeight * 0.1 || ship.y > screenHeight * 0.9) {
+                thrust = true;
+                if (ship.x < screenWidth * 0.1) turnRight = true;
+                else if (ship.x > screenWidth * 0.9) turnLeft = true;
+                if (ship.y < screenHeight * 0.1) turnRight = true; // Rotate to go downwards
+                else if (ship.y > screenHeight * 0.9) turnLeft = true; // Rotate to go upwards
             }
         }
 
@@ -2817,17 +2996,18 @@ class StatisticsDialog extends JDialog {
             g2d.setColor(Color.WHITE);
             g2d.drawOval(x, y, diameter, diameter);
 
-            // Add percentages text
+            // Add percentages text - repositioned for better visibility
             g2d.setFont(new Font("Arial", Font.BOLD, 14));
             // Calculate center of pie for text placement
             int centerX = x + diameter / 2;
             int centerY = y + diameter / 2;
 
-            // Text for Slice 1 (Hits)
+            // Text for Slice 1 (Hits) - positioned further out
             if (sliceValue > 0) {
                 double textAngle1 = Math.toRadians(startAngle + arcAngle1 / 2.0);
-                int textX1 = (int) (centerX + diameter / 3.0 * Math.cos(textAngle1));
-                int textY1 = (int) (centerY + diameter / 3.0 * Math.sin(textAngle1));
+                // Increased multiplier for text radius to move labels further from center
+                int textX1 = (int) (centerX + diameter / 2.5 * Math.cos(textAngle1)); // Changed 3.0 to 2.5
+                int textY1 = (int) (centerY + diameter / 2.5 * Math.sin(textAngle1)); // Changed 3.0 to 2.5
                 String text1 = String.format("Hits: %.1f%%", slicePercentage * 100);
                 drawCenteredString(g2d, text1, g2d.getFont(), textX1, textY1);
             }
@@ -2835,8 +3015,9 @@ class StatisticsDialog extends JDialog {
             // Text for Slice 2 (Misses)
             if (otherValue > 0) {
                 double textAngle2 = Math.toRadians(startAngle + arcAngle1 + arcAngle2 / 2.0);
-                int textX2 = (int) (centerX + diameter / 3.0 * Math.cos(textAngle2));
-                int textY2 = (int) (centerY + diameter / 3.0 * Math.sin(textAngle2));
+                // Increased multiplier for text radius
+                int textX2 = (int) (centerX + diameter / 2.5 * Math.cos(textAngle2)); // Changed 3.0 to 2.5
+                int textY2 = (int) (centerY + diameter / 2.5 * Math.sin(textAngle2)); // Changed 3.0 to 2.5
                 String text2 = String.format("Misses: %.1f%%", otherPercentage * 100);
                 drawCenteredString(g2d, text2, g2d.getFont(), textX2, textY2);
             }
@@ -2931,5 +3112,77 @@ class StatisticsDialog extends JDialog {
             int textY = intY + metrics.getAscent() / 2;
             g2d.drawString(text, textX, textY);
         }
+    }
+}
+
+
+/**
+ * Represents a power-up that appears in the game.
+ */
+class PowerUp {
+    double x, y;
+    final Type type;
+    private final int SIZE = 20; // Radius of the power-up
+    public final long creationTime; // New field to store creation time
+
+    public enum Type {
+        FREEZE,
+        ATOM_BOOM
+    }
+
+    public PowerUp(Type type, Random random, int screenWidth, int screenHeight) {
+        this.type = type;
+        // Spawn randomly within the screen, with some padding from edges
+        this.x = random.nextInt(screenWidth - 2 * SIZE) + SIZE;
+        this.y = random.nextInt(screenHeight - 2 * SIZE) + SIZE;
+        this.creationTime = System.currentTimeMillis(); // Initialize creation time
+    }
+
+    public void draw(Graphics2D g2d) {
+        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        // Draw the base circle
+        g2d.setColor(Color.GRAY.darker());
+        g2d.fillOval((int) x - SIZE / 2, (int) y - SIZE / 2, SIZE, SIZE);
+        g2d.setColor(Color.WHITE);
+        g2d.drawOval((int) x - SIZE / 2, (int) y - SIZE / 2, SIZE, SIZE);
+
+        // Draw type-specific symbol/color
+        switch (type) {
+            case FREEZE:
+                g2d.setColor(Color.CYAN); // Ice blue
+                // Draw a simple snowflake/ice symbol
+                g2d.drawLine((int)x, (int)y - SIZE/4, (int)x, (int)y + SIZE/4); // Vertical line
+                g2d.drawLine((int)x - SIZE/4, (int)y, (int)x + SIZE/4, (int)y); // Horizontal line
+                g2d.drawLine((int)(x - SIZE/4 * 0.7), (int)(y - SIZE/4 * 0.7), (int)(x + SIZE/4 * 0.7), (int)(y + SIZE/4 * 0.7)); // Diagonal 1
+                g2d.drawLine((int)(x + SIZE/4 * 0.7), (int)(y - SIZE/4 * 0.7), (int)(x - SIZE/4 * 0.7), (int)(y + SIZE/4 * 0.7)); // Diagonal 2
+                break;
+            case ATOM_BOOM:
+                g2d.setColor(Color.GREEN.brighter()); // Explosive green
+                // Draw a simple radiation symbol
+                int symbolSize = (int)(SIZE * 0.6);
+                g2d.setColor(Color.GREEN.brighter());
+                g2d.fillOval((int)x - symbolSize/2, (int)y - symbolSize/2, symbolSize, symbolSize);
+                g2d.setColor(Color.BLACK);
+                g2d.fillOval((int)x - symbolSize/4, (int)y - symbolSize/4, symbolSize/2, symbolSize/2);
+                g2d.drawArc((int)x - symbolSize/2, (int)y - symbolSize/2, symbolSize, symbolSize, 30, 60);
+                g2d.drawArc((int)x - symbolSize/2, (int)y - symbolSize/2, symbolSize, symbolSize, 150, 60);
+                g2d.drawArc((int)x - symbolSize/2, (int)y - symbolSize/2, symbolSize, symbolSize, 270, 60);
+                break;
+        }
+    }
+
+    public Rectangle getBounds() {
+        return new Rectangle((int) x - SIZE / 2, (int) y - SIZE / 2, SIZE, SIZE);
+    }
+
+    /**
+     * Checks if the power-up is within the screen bounds.
+     * @param screenWidth Width of the game screen.
+     * @param screenHeight Height of the game screen.
+     * @return true if on screen, false otherwise.
+     */
+    boolean onScreen(int screenWidth, int screenHeight) {
+        return x >= -SIZE && x <= screenWidth + SIZE && y >= -SIZE && y <= screenHeight + SIZE;
     }
 }
