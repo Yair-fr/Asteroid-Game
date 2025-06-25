@@ -38,7 +38,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     // Power-up constants
     private static final int FREEZE_SCORE_INTERVAL = 100;
     private static final long FREEZE_DURATION = 2000; // 2 seconds
-    private static final int ATOM_BOOM_SCORE_INTERVAL = 150;
+    private static final int ATOM_BOOM_SCORE_INTERVAL = 200;
     private static final long ATOM_BOOM_ANIMATION_DURATION = 2000; // 2 seconds
     private static final long POWERUP_LIFETIME = 10000; // Power-ups disappear after 10 seconds
 
@@ -1420,10 +1420,10 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                     score += getScoreForAsteroid(asteroid.size);
                     asteroidsDestroyed++; // Increment asteroids destroyed
                     if (asteroid.size > Asteroid.MIN_SPLIT_SIZE) {
-                        for (int i = 0; i < 2; i++) {
-                            newAsteroids.add(new Asteroid(asteroid.x, asteroid.y, asteroid.size / 2, random, difficultyLevel));
-                            totalAsteroidsSpawned++; // Count split asteroids
-                        }
+                        // Pass asteroid's original direction for recoil effect
+                        newAsteroids.add(new Asteroid(asteroid.x, asteroid.y, asteroid.size / 2, random, difficultyLevel, asteroid.dx, asteroid.dy, Math.PI / 3));
+                        newAsteroids.add(new Asteroid(asteroid.x, asteroid.y, asteroid.size / 2, random, difficultyLevel, asteroid.dx, asteroid.dy, -Math.PI / 3));
+                        totalAsteroidsSpawned += 2; // Count two new split asteroids
                     }
                     asteroidIterator.remove();
                     break;
@@ -1470,10 +1470,10 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                     score += getScoreForAsteroid(asteroid.size);
                     asteroidsDestroyed++; // Increment asteroids destroyed
                     if (asteroid.size > Asteroid.MIN_SPLIT_SIZE) {
-                        for (int i = 0; i < 2; i++) {
-                            newAsteroids.add(new Asteroid(asteroid.x, asteroid.y, asteroid.size / 2, random, difficultyLevel));
-                            totalAsteroidsSpawned++; // Count split asteroids
-                        }
+                        // Pass asteroid's original direction for recoil effect
+                        newAsteroids.add(new Asteroid(asteroid.x, asteroid.y, asteroid.size / 2, random, difficultyLevel, asteroid.dx, asteroid.dy, Math.PI / 3));
+                        newAsteroids.add(new Asteroid(asteroid.x, asteroid.y, asteroid.size / 2, random, difficultyLevel, asteroid.dx, asteroid.dy, -Math.PI / 3));
+                        totalAsteroidsSpawned += 2; // Count two new split asteroids
                     }
                     asteroidIterator.remove();
                     break;
@@ -1548,10 +1548,10 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                     // Provide positive feedback to AI when it hits an asteroid
                     shipAI.receiveFeedback(true, false);
                     if (asteroid.size > Asteroid.MIN_SPLIT_SIZE) {
-                        for (int i = 0; i < 2; i++) {
-                            newAsteroids.add(new Asteroid(asteroid.x, asteroid.y, asteroid.size / 2, random, difficultyLevel));
-                            totalAsteroidsSpawned++; // Count split asteroids
-                        }
+                        // Pass asteroid's original direction for recoil effect
+                        newAsteroids.add(new Asteroid(asteroid.x, asteroid.y, asteroid.size / 2, random, difficultyLevel, asteroid.dx, asteroid.dy, Math.PI / 3));
+                        newAsteroids.add(new Asteroid(asteroid.x, asteroid.y, asteroid.size / 2, random, difficultyLevel, asteroid.dx, asteroid.dy, -Math.PI / 3));
+                        totalAsteroidsSpawned += 2; // Count two new split asteroids
                     }
                     asteroidIterator.remove();
                     break;
@@ -2240,13 +2240,18 @@ class Asteroid {
 
     /**
      * Constructor for splitting asteroids, inheriting position and having a new size.
+     * The new asteroids will scatter generally away from the direction of the incoming bullet.
      * @param startX X position of the parent asteroid.
      * @param startY Y position of the parent asteroid.
      * @param newSize New size of the split asteroid.
      * @param random The Random instance from the game.
      * @param currentDifficulty The current difficulty level of the game.
+     * @param parentAsteroidDx X component of the parent asteroid's velocity.
+     * @param parentAsteroidDy Y component of the parent asteroid's velocity.
+     * @param angleOffsetRadians A fixed angle offset (e.g., PI/3 or -PI/3) for the new fragment.
      */
-    Asteroid(double startX, double startY, int newSize, Random random, int currentDifficulty) {
+    Asteroid(double startX, double startY, int newSize, Random random, int currentDifficulty,
+             double parentAsteroidDx, double parentAsteroidDy, double angleOffsetRadians) {
         this.random = random;
         this.difficultyLevel = currentDifficulty; // Store the current difficulty
         this.x = startX;
@@ -2258,16 +2263,22 @@ class Asteroid {
         double effectiveSplitSpeed = baseSplitSpeed * sizeSpeedMultiplier;
 
         // Apply difficulty level to split asteroid speed as well
-        // At difficulty 1: 0.5 + 1 * 0.05 = 0.55 (55% of baseSplitSpeed)
-        // At difficulty 10: 0.5 + 10 * 0.05 = 1.0 (100% of baseSplitSpeed)
+        effectiveSplitSpeed *= (0.5 + (double) this.difficultyLevel * 0.05);
 
-        effectiveSplitSpeed *= (0.5 + (double) this.difficultyLevel * 0.05); // Each difficulty level adds 5% speed to split asteroids
-        // For level 1: 0.5 + 0.05 = 0.55 (55% of baseSplitSpeed)
-        // For level 10: 0.5 + 0.5 = 1.0 (100% of baseSplitSpeed)
+        // Calculate the direction opposite to the parent asteroid's original movement
+        // If parent asteroid was stationary, pick a random opposite direction
+        double oppositeParentAngleRadians;
+        if (parentAsteroidDx == 0 && parentAsteroidDy == 0) {
+            oppositeParentAngleRadians = random.nextDouble() * 2 * Math.PI; // Random direction
+        } else {
+            oppositeParentAngleRadians = Math.atan2(-parentAsteroidDy, -parentAsteroidDx);
+        }
 
-        double angle = random.nextDouble() * 2 * Math.PI;
-        this.dx = Math.cos(angle) * effectiveSplitSpeed;
-        this.dy = Math.sin(angle) * effectiveSplitSpeed;
+        // Apply the fixed angle offset for each new fragment
+        double finalAngleRadians = oppositeParentAngleRadians + angleOffsetRadians;
+
+        this.dx = Math.cos(finalAngleRadians) * effectiveSplitSpeed;
+        this.dy = Math.sin(finalAngleRadians) * effectiveSplitSpeed;
         this.color = new Color(random.nextInt(156) + 100, random.nextInt(156) + 100, random.nextInt(156) + 100);
     }
 
