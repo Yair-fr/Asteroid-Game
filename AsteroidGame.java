@@ -37,7 +37,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
 
     // Power-up constants
     private static final int FREEZE_SCORE_INTERVAL = 100;
-    private static final long FREEZE_DURATION = 2000; // 2 seconds
+    private static final long FREEZE_DURATION = 3000; // 3 seconds
     private static final int ATOM_BOOM_SCORE_INTERVAL = 200;
     private static final long ATOM_BOOM_ANIMATION_DURATION = 2000; // 2 seconds
     private static final long POWERUP_LIFETIME = 10000; // Power-ups disappear after 10 seconds
@@ -1950,7 +1950,7 @@ class Ship {
     private final double ACCELERATION = 0.2;
     private final double FRICTION = 0.98; // Reduces velocity over time
     private final double ROTATION_SPEED = 4.5; // Increased for faster/smoother rotation
-    public final int SIZE = 20; // Represents roughly half width/height for bounding box and drawing
+    public final int SIZE = 14; // Represents roughly half width/height for bounding box and drawing (20 * 0.7 = 14)
     private final int INVINCIBILITY_DURATION = 1500; // milliseconds after spawn/hit/shield
     private long invincibilityEndTime = 0;
     private final Pattern pattern; // New field for ship pattern
