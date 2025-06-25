@@ -22,10 +22,16 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     private static final long RELOAD_FULL_DURATION = 5000; // 5 seconds to reload when empty
     private static final long RELOAD_INCREMENTAL_DURATION = 2000; // 2 second per bullet for passive reload
 
-    // Hyperspace constants
-    private static final long HYPER_ACTIVE_DURATION = 2000; // 2 seconds of hyper-speed
-    private static final long HYPER_RECHARGE_DURATION = 10000; // 10 seconds to recharge hyper-fuel
-    private static final double HYPER_SPEED_MULTIPLIER = 2.0;
+    // Shield (formerly Hyperspace) constants
+    private static final long SHIELD_ACTIVE_DURATION = 2000; // 2 seconds of shield active time
+    private static final long SHIELD_RECHARGE_DURATION = 10000; // 10 seconds to recharge shield
+    private static final double SHIP_SPEED_REDUCTION_FACTOR = 0.5; // Ship moves at 0.5x normal speed when shielded
+
+    // Asteroid slowdown during shield active
+    // This value multiplies the asteroid's speed when a player has shield active.
+    // 0.5 means asteroids move at half their normal speed.
+    // 1.0 means no slowdown. 0.0 means they stop.
+    private static final double ASTEROID_SLOWDOWN_MULTIPLIER = 0.5;
 
     // Starfield constants for the start screen
     private static final int MAX_STARS = 150; // Number of stars in the background
@@ -41,14 +47,15 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     boolean up2, left2, right2; // Player 2 movement controls
 
     // Single-press action flags (consumed after one tick)
-    boolean shootRequested1, hyperspaceRequested1;
-    boolean shootRequested2, hyperspaceRequested2;
+    boolean shootRequested1, shieldRequested1;
+    boolean shootRequested2, shieldRequested2;
 
     int score = 0; // Single player score, or combined if desired later
     private int difficultyLevel = 0; // Starts at 0 for "extra easy" (dynamically updated in game)
     private int initialDifficulty = 1; // User selected initial difficulty (1 to 10)
     int lives1, lives2; // Lives for each player
     GameState state = GameState.START;
+    private GameState lastPlayedState = GameState.PLAYING_SINGLE; // Stores the mode before GAME_OVER
     long lastShotTime1 = 0;
     long lastShotTime2 = 0;
 
@@ -63,18 +70,35 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     private long reloadStartTime2 = 0;
     private long lastReloadTickTime2 = 0; // For incremental reload
 
-    // Hyperspace state for each player
-    private boolean hyperSpeedActive1 = false;
-    private long hyperspaceActivationTime1 = 0;
-    private long hyperFuelRefillTime1 = 0; // When hyper-fuel will be full again
+    // Shield state for each player (formerly Hyperspace)
+    private boolean shieldActive1 = false;
+    private long shieldActivationTime1 = 0;
+    private long shieldRefillTime1 = 0; // When shield will be full again
 
-    private boolean hyperSpeedActive2 = false;
-    private long hyperspaceActivationTime2 = 0;
-    private long hyperFuelRefillTime2 = 0;
+    private boolean shieldActive2 = false;
+    private long shieldActivationTime2 = 0;
+    private long shieldRefillTime2 = 0;
+
+    // Game Statistics variables
+    private long gameStartTime;
+    private long gameEndTime;
+    private int bulletsFired;
+    private int asteroidsDestroyed;
+    private long totalShieldDuration1; // Total milliseconds spent with shield active for player 1
+    private int totalShieldActivations1; // Total times shield was activated for player 1
+    private long totalShieldDuration2; // Total milliseconds spent with shield active for player 2
+    private int totalShieldActivations2; // Total times shield was activated for player 2
+    private int totalAsteroidsSpawned; // Total asteroids created (initial + splits)
+    private final int SHIELD_COST_PER_ACTIVATION = 10; // Configurable in code, not GUI, cost to activate shield
 
     // High Score management
     private List<HighScoreEntry> highScores = new ArrayList<>();
     private static final String HIGHSCORE_FILE = "highscores.dat";
+
+    // AI Statistics management
+    private AIStats aiStats;
+    private static final String AI_STATS_FILE = "aistats.dat";
+    private ShipAI shipAI; // Instance of the AI for ML mode
 
     // Username input for new high scores and multiplayer names
     private String userName1 = "Player 1";
@@ -87,15 +111,18 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
 
     // Configurable keys for multiplayer
     private int player1ShootKey = KeyEvent.VK_SPACE;
-    private int player1HyperspaceKey = KeyEvent.VK_H;
+    private int player1ShieldKey = KeyEvent.VK_H; // Renamed from player1HyperspaceKey
     private int player2ShootKey = KeyEvent.VK_C;
-    private int player2HyperspaceKey = KeyEvent.VK_V;
+    private int player2ShieldKey = KeyEvent.VK_V; // Renamed from player2HyperspaceKey
 
-    // Flags to track if shoot/hyperspace keys are currently held down (to prevent repeated triggers from keyPressed)
+    // Flags to track if shoot/shield keys are currently held down (to prevent repeated triggers from keyPressed)
     private boolean player1ShootKeyHeld = false;
-    private boolean player1HyperspaceKeyHeld = false;
+    private boolean player1ShieldKeyHeld = false; // Renamed
     private boolean player2ShootKeyHeld = false;
-    private boolean player2HyperspaceKeyHeld = false;
+    private boolean player2ShieldKeyHeld = false; // Renamed
+
+    // Jarvis (AI) specific configurable lives
+    private int jarvisLivesInput = INITIAL_LIVES;
 
 
     // Random generator for the game
@@ -119,7 +146,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         setFocusable(true);
         addKeyListener(this);
         addMouseListener(this); // Add mouse listener for the close button
-        initGame();
+        initGame(); // Call initGame from constructor
         timer = new Timer(15, this); // ~60 FPS
         timer.start();
     }
@@ -133,7 +160,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         ship2 = new Ship(3 * WIDTH / 4, HEIGHT / 2, player2ShipPattern); // Ship 2 with chosen pattern
 
         bullets.clear();
-        asteroids.clear();
+        asteroids.clear(); // Clear asteroids here, they'll be spawned by game mode specific logic
         effects.clear();
         score = 0; // Reset score (will be for current player in single, or combined if needed)
         difficultyLevel = initialDifficulty; // Initialize difficulty with user selection
@@ -153,24 +180,42 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         reloadStartTime2 = 0;
         lastReloadTickTime2 = System.currentTimeMillis(); // Initialize for passive reload
 
-        hyperSpeedActive1 = false;
-        hyperspaceActivationTime1 = 0;
-        hyperFuelRefillTime1 = System.currentTimeMillis(); // Hyper-fuel starts full
+        shieldActive1 = false; // Renamed
+        shieldActivationTime1 = 0; // Renamed
+        shieldRefillTime1 = System.currentTimeMillis(); // Shield starts full (Renamed)
+
+        shieldActive2 = false; // Renamed
+        shieldActivationTime2 = 0; // Renamed
+        shieldRefillTime2 = System.currentTimeMillis(); // Shield starts full (Renamed)
 
         up1 = left1 = right1 = false; // Movement flags
         up2 = left2 = right2 = false;
 
-        shootRequested1 = hyperspaceRequested1 = false; // Action flags
-        shootRequested2 = hyperspaceRequested2 = false;
+        shootRequested1 = shieldRequested1 = false; // Action flags (Renamed)
+        shootRequested2 = shieldRequested2 = false; // Action flags (Renamed)
 
         // Reset key held flags
         player1ShootKeyHeld = false;
-        player1HyperspaceKeyHeld = false;
+        player1ShieldKeyHeld = false; // Renamed
         player2ShootKeyHeld = false;
-        player2HyperspaceKeyHeld = false;
+        player2ShieldKeyHeld = false; // Renamed
 
-        // Load high score list at game initialization
+        // Reset game statistics
+        gameStartTime = 0;
+        gameEndTime = 0;
+        bulletsFired = 0;
+        asteroidsDestroyed = 0;
+        totalShieldDuration1 = 0; // Renamed
+        totalShieldActivations1 = 0; // Renamed
+        totalShieldDuration2 = 0; // Renamed
+        totalShieldActivations2 = 0; // Renamed
+        totalAsteroidsSpawned = 0;
+
+
+        // Load high score list and AI stats at game initialization
         loadHighScores();
+        loadAIStats();
+
         // If high scores were loaded, set username to the top scorer's name for default prompt
         if (!highScores.isEmpty()) {
             tempUserNameInput = highScores.get(0).getUserName();
@@ -178,18 +223,22 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             tempUserNameInput = "Player"; // Default if no scores
         }
 
+        // Initialize AI instance, passing the initial AI stats
+        shipAI = new ShipAI(random, WIDTH, HEIGHT, aiStats);
+
         // Populate stars for the start screen background
         stars.clear();
         populateStars(WIDTH, HEIGHT, MAX_STARS);
     }
 
     /**
-     * Spawns the initial set of asteroids for a new game.
+     * Spawns a specified number of initial asteroids for a new game.
+     * @param count The number of asteroids to spawn.
      */
-    private void spawnInitialAsteroids() {
-        // Initial asteroids spawned at the current difficultyLevel
-        for(int i = 0; i < 3; i++) {
+    private void spawnAsteroids(int count) {
+        for(int i = 0; i < count; i++) {
             asteroids.add(new Asteroid(random, difficultyLevel));
+            totalAsteroidsSpawned++; // Count initial asteroids
         }
     }
 
@@ -249,8 +298,9 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 }
                 player1ShipPattern = Ship.Pattern.NONE; // Default for single player
                 initGame(); // Initialize common game elements
-                spawnInitialAsteroids(); // Spawn asteroids specific to playing
+                spawnAsteroids(3); // Spawn 3 initial asteroids for single player
                 state = GameState.PLAYING_SINGLE;
+                gameStartTime = System.currentTimeMillis(); // Record game start time
             });
 
             // Multiplayer (Customize Names) button
@@ -264,11 +314,39 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 player1ShipPattern = Ship.Pattern.ZEBRA; // Default for quick play
                 player2ShipPattern = Ship.Pattern.DOTTED; // Default for quick play
                 initGame(); // Make sure to init for quick play to apply patterns
-                state = GameState.MULTIPLAYER_DISPLAY_QRS;
+                spawnAsteroids(5); // Spawn 5 initial asteroids for multiplayer quick play
+                state = GameState.MULTIPLAYER_PLAYING; // Directly start playing
+                gameStartTime = System.currentTimeMillis(); // Record game start time
             });
 
+            // ML Mode button
+            drawButton(g2d, "ML Mode (Jarvis)", WIDTH / 2, HEIGHT / 2 + 170, 350, 50, () -> {
+                String inputLives = JOptionPane.showInputDialog(this, "Enter Jarvis's initial lives:", String.valueOf(jarvisLivesInput));
+                if (inputLives != null && !inputLives.trim().isEmpty()) {
+                    try {
+                        int parsedLives = Integer.parseInt(inputLives.trim());
+                        if (parsedLives > 0) {
+                            jarvisLivesInput = parsedLives;
+                        } else {
+                            JOptionPane.showMessageDialog(this, "Lives must be a positive number. Using default.", "Invalid Input", JOptionPane.WARNING_MESSAGE);
+                        }
+                    } catch (NumberFormatException ex) {
+                        JOptionPane.showMessageDialog(this, "Invalid number format for lives. Using default.", "Invalid Input", JOptionPane.WARNING_MESSAGE);
+                    }
+                }
+                initGame(); // Re-initialize for new game
+                lives1 = jarvisLivesInput; // AI starts with configurable lives
+                player1ShipPattern = Ship.Pattern.DOTTED; // AI uses a distinct pattern
+                spawnAsteroids(7); // Spawn 7 initial asteroids for ML mode
+                aiStats.totalGames++; // Increment total games for AI
+                saveAIStats();
+                state = GameState.ML_PLAYING;
+                gameStartTime = System.currentTimeMillis(); // Record game start time
+            });
+
+
             // Button to select difficulty
-            drawButton(g2d, "Difficulty: " + initialDifficulty + " (Click to Change)", WIDTH / 2, HEIGHT / 2 + 170, 350, 40, this::showDifficultySelection);
+            drawButton(g2d, "Difficulty: " + initialDifficulty + " (Click to Change)", WIDTH / 2, HEIGHT / 2 + 240, 350, 40, this::showDifficultySelection);
 
 
             // Display High Score on Start screen - now only top 3
@@ -277,12 +355,16 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             int scoreY = HEIGHT / 2 + 370;
             for (int i = 0; i < Math.min(highScores.size(), 3); i++) { // Display top 3 scores
                 HighScoreEntry entry = highScores.get(i);
-                drawCenteredString(g2d, (i + 1) + ". " + entry.getUserName() + ": " + entry.getScore() + " (D:" + entry.getDifficulty() + ")",
+                String scoreText = entry.getUserName() + ": " + entry.getScore() + " (D:" + entry.getDifficulty() + ")";
+                if (entry.isAI()) {
+                    scoreText += " [AI v" + entry.getAiVersion() + "]";
+                }
+                drawCenteredString(g2d, (i + 1) + ". " + scoreText,
                                    new Font("Arial", Font.PLAIN, 20), scoreY + (i * 25));
             }
 
             // New button to view all high scores
-            drawButton(g2d, "View All Scores", WIDTH / 2, HEIGHT / 2 + 230, 250, 40, this::showAllHighScores);
+            drawButton(g2d, "View All Scores", WIDTH / 2, HEIGHT / 2 + 290, 250, 40, this::showAllHighScores);
 
 
             g2d.setFont(new Font("Arial", Font.PLAIN, 16));
@@ -326,10 +408,10 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                     player1ShootKey = input.toUpperCase().charAt(0);
                 }
             });
-            drawButton(g2d, "Hyper: " + KeyEvent.getKeyText(player1HyperspaceKey), WIDTH / 2 + 100, currentY, 150, 40, () -> {
-                String input = JOptionPane.showInputDialog(this, "Press key for Player 1 Hyperspace:");
+            drawButton(g2d, "Shield: " + KeyEvent.getKeyText(player1ShieldKey), WIDTH / 2 + 100, currentY, 150, 40, () -> { // Renamed
+                String input = JOptionPane.showInputDialog(this, "Press key for Player 1 Shield:");
                 if (input != null && !input.isEmpty() && input.length() == 1) {
-                    player1HyperspaceKey = input.toUpperCase().charAt(0);
+                    player1ShieldKey = input.toUpperCase().charAt(0);
                 }
             });
 
@@ -367,17 +449,19 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                     player2ShootKey = input.toUpperCase().charAt(0);
                 }
             });
-            drawButton(g2d, "Hyper: " + KeyEvent.getKeyText(player2HyperspaceKey), WIDTH / 2 + 100, currentY, 150, 40, () -> {
-                String input = JOptionPane.showInputDialog(this, "Press key for Player 2 Hyperspace:");
+            drawButton(g2d, "Shield: " + KeyEvent.getKeyText(player2ShieldKey), WIDTH / 2 + 100, currentY, 150, 40, () -> { // Renamed
+                String input = JOptionPane.showInputDialog(this, "Press key for Player 2 Shield:");
                 if (input != null && !input.isEmpty() && input.length() == 1) {
-                    player2HyperspaceKey = input.toUpperCase().charAt(0);
+                    player2ShieldKey = input.toUpperCase().charAt(0);
                 }
             });
 
             currentY = HEIGHT - 80; // Reposition bottom buttons to be above the copyright
-            drawButton(g2d, "Generate Controllers", WIDTH / 2 + 100, currentY, 250, 60, () -> { // Adjusted position
+            drawButton(g2d, "Start Multiplayer Game", WIDTH / 2 + 100, currentY, 250, 60, () -> { // Adjusted position
                 initGame();
-                state = GameState.MULTIPLAYER_DISPLAY_QRS;
+                spawnAsteroids(5); // Spawn 5 initial asteroids for multiplayer
+                state = GameState.MULTIPLAYER_PLAYING;
+                gameStartTime = System.currentTimeMillis(); // Record game start time
             });
             drawButton(g2d, "Back to Main Menu", WIDTH / 2 - 150, currentY, 200, 40, () -> state = GameState.START); // Adjusted position
 
@@ -395,7 +479,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             drawQRCodePlaceholder(g2d, WIDTH / 4 - 50, HEIGHT / 3 + 50, 100, "Player 1 URL");
             g2d.setFont(new Font("Arial", Font.PLAIN, 18));
             g2d.drawString("Controls: ARROW Keys", WIDTH / 4 - 100, HEIGHT / 3 + 170);
-            g2d.drawString("Shoot: " + KeyEvent.getKeyText(player1ShootKey) + ", Hyper: " + KeyEvent.getKeyText(player1HyperspaceKey), WIDTH / 4 - 100, HEIGHT / 3 + 195);
+            g2d.drawString("Shoot: " + KeyEvent.getKeyText(player1ShootKey) + ", Shield: " + KeyEvent.getKeyText(player1ShieldKey), WIDTH / 4 - 100, HEIGHT / 3 + 195); // Renamed
 
 
             // Player 2 QR Code and Controls
@@ -405,30 +489,48 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             drawQRCodePlaceholder(g2d, 3 * WIDTH / 4 - 50, HEIGHT / 3 + 50, 100, "Player 2 URL");
             g2d.setFont(new Font("Arial", Font.PLAIN, 18));
             g2d.drawString("Controls: W, A, D", 3 * WIDTH / 4 - 100, HEIGHT / 3 + 170);
-            g2d.drawString("Shoot: " + KeyEvent.getKeyText(player2ShootKey) + ", Hyper: " + KeyEvent.getKeyText(player2HyperspaceKey), 3 * WIDTH / 4 - 100, HEIGHT / 3 + 195);
+            g2d.drawString("Shoot: " + KeyEvent.getKeyText(player2ShootKey) + ", Shield: " + KeyEvent.getKeyText(player2ShieldKey), 3 * WIDTH / 4 - 100, HEIGHT / 3 + 195); // Renamed
 
             drawButton(g2d, "Start Multiplayer Game", WIDTH / 2, HEIGHT - 100, 300, 60, () -> {
                 initGame(); // Initialize common game elements for a new game session
-                spawnInitialAsteroids(); // Spawn asteroids now that game is starting
+                spawnAsteroids(5); // Spawn 5 initial asteroids for multiplayer
                 state = GameState.MULTIPLAYER_PLAYING;
+                gameStartTime = System.currentTimeMillis(); // Record game start time
             });
             drawButton(g2d, "Back to Setup", WIDTH / 2, HEIGHT - 30, 200, 40, () -> state = GameState.MULTIPLAYER_SETUP_NAMES);
 
-        } else if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING) {
+        } else if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING || state == GameState.ML_PLAYING) {
             ship1.draw(g2d);
             if (state == GameState.MULTIPLAYER_PLAYING) {
                 ship2.draw(g2d);
             }
 
             for (Bullet b : bullets) b.draw(g2d);
-            for (Asteroid a : asteroids) a.draw(g2d);
+            for (Asteroid a : asteroids) a.draw(g2d); // This line ensures asteroids are drawn
+            
+            // Determine asteroid speed multiplier based on shield active status
+            double currentAsteroidSpeedMultiplier = 1.0; // Default to normal speed
+            if (shieldActive1 || shieldActive2) { // Check both players for slowdown effect
+                currentAsteroidSpeedMultiplier = ASTEROID_SLOWDOWN_MULTIPLIER;
+            }
+            // Update asteroids with the current speed multiplier
+            for (Asteroid a : asteroids) {
+                a.update(currentAsteroidSpeedMultiplier);
+            }
+
             for (PopEffect p : effects) p.draw(g2d);
 
             // UI elements for Player 1 (top left)
             g2d.setColor(Color.WHITE);
             g2d.setFont(new Font("Arial", Font.PLAIN, 18));
             g2d.drawString("Score: " + score, 10, 20);
-            g2d.drawString("Lives: " + lives1, 10, 40);
+            if (state != GameState.ML_PLAYING) { // Only show lives for human player
+                g2d.drawString("Lives: " + lives1, 10, 40);
+            } else { // For ML mode, show AI status
+                g2d.drawString("Jarvis Lives: " + lives1, 10, 40);
+                g2d.drawString("Jarvis Version: " + aiStats.getFormattedVersion(), 10, 60);
+            }
+
 
             // UI elements for Player 2 (top right) in multiplayer mode
             if (state == GameState.MULTIPLAYER_PLAYING) {
@@ -442,7 +544,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             int labelOffset = 45; // Distance from bottom for labels
             int barOffset = 30;   // Distance from bottom for bars
 
-            int player1SectionWidth = barWidth * 2 + 50; // Width for fuel bar + bullet bar + gap
+            int player1SectionWidth = barWidth * 2 + 50; // Width for shield bar + bullet bar + gap
             int player2SectionWidth = barWidth * 2 + 50;
             int totalUIWidth = player1SectionWidth;
             if (state == GameState.MULTIPLAYER_PLAYING) {
@@ -450,43 +552,43 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             }
             int startX = (WIDTH - totalUIWidth) / 2;
 
-            int fuel1X = startX;
-            int bullets1X = fuel1X + barWidth + 50;
+            int shield1X = startX; // Renamed
+            int bullets1X = shield1X + barWidth + 50;
 
-            // Draw hyper-fuel bar for Player 1
+            // Draw Shield bar for Player 1 (Renamed)
             g2d.setColor(Color.WHITE);
-            g2d.drawString("Hyper-Fuel:", fuel1X, uiBottomY - labelOffset); // Removed player name
+            g2d.drawString("Shield:", shield1X, uiBottomY - labelOffset); // Removed player name
 
-            double hyperFuelProgress1;
-            if (hyperSpeedActive1) {
-                hyperFuelProgress1 = 1.0 - (double)(System.currentTimeMillis() - hyperspaceActivationTime1) / HYPER_ACTIVE_DURATION;
+            double shieldProgress1; // Renamed
+            if (shieldActive1) { // Renamed
+                shieldProgress1 = 1.0 - (double)(System.currentTimeMillis() - shieldActivationTime1) / SHIELD_ACTIVE_DURATION; // Renamed
             } else {
-                long timeToRefill = hyperFuelRefillTime1 - System.currentTimeMillis();
+                long timeToRefill = shieldRefillTime1 - System.currentTimeMillis(); // Renamed
                 if (timeToRefill <= 0) {
-                    hyperFuelProgress1 = 1.0; // Full
+                    shieldProgress1 = 1.0; // Full
                 } else {
-                    hyperFuelProgress1 = 1.0 - (double)timeToRefill / HYPER_RECHARGE_DURATION;
+                    shieldProgress1 = 1.0 - (double)timeToRefill / SHIELD_RECHARGE_DURATION; // Renamed
                 }
             }
-            if (hyperFuelProgress1 < 0) hyperFuelProgress1 = 0;
-            if (hyperFuelProgress1 > 1) hyperFuelProgress1 = 1;
+            if (shieldProgress1 < 0) shieldProgress1 = 0;
+            if (shieldProgress1 > 1) shieldProgress1 = 1;
 
-            // Draw background of fuel bar
+            // Draw background of shield bar
             g2d.setColor(Color.DARK_GRAY);
-            g2d.fillRect(fuel1X, uiBottomY - barOffset, barWidth, barHeight);
+            g2d.fillRect(shield1X, uiBottomY - barOffset, barWidth, barHeight);
 
-            // Draw filled portion of fuel bar ("flowing water")
-            g2d.setColor(Color.CYAN); // Changed color for fuel fill
-            g2d.fillRect(fuel1X, uiBottomY - barOffset, (int)(barWidth * hyperFuelProgress1), barHeight);
+            // Draw filled portion of shield bar ("flowing water")
+            g2d.setColor(Color.CYAN); // Changed color for shield fill
+            g2d.fillRect(shield1X, uiBottomY - barOffset, (int)(barWidth * shieldProgress1), barHeight);
             g2d.setColor(Color.YELLOW); // Draw border over filled part
-            g2d.drawRect(fuel1X, uiBottomY - barOffset, barWidth, barHeight);
+            g2d.drawRect(shield1X, uiBottomY - barOffset, barWidth, barHeight);
 
             // Draw refuel message if recharging for Player 1
-            if (!hyperSpeedActive1 && System.currentTimeMillis() < hyperFuelRefillTime1) {
+            if (!shieldActive1 && System.currentTimeMillis() < shieldRefillTime1) { // Renamed
                 g2d.setColor(Color.ORANGE); // Different color for refuel message
-                String msg = "Refueling...";
+                String msg = "Recharging...";
                 FontMetrics fm = g2d.getFontMetrics();
-                int msgX = fuel1X + (barWidth - fm.stringWidth(msg)) / 2;
+                int msgX = shield1X + (barWidth - fm.stringWidth(msg)) / 2;
                 int msgY = uiBottomY - barOffset + barHeight / 2 + fm.getAscent() / 2; // Centered vertically in bar
                 g2d.drawString(msg, msgX, msgY);
             }
@@ -521,40 +623,40 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
 
             // UI for Player 2 in multiplayer mode
             if (state == GameState.MULTIPLAYER_PLAYING) {
-                int fuel2X = bullets1X + barWidth + 80; // Adjusted spacing between player sections
-                int bullets2X = fuel2X + barWidth + 50;
+                int shield2X = bullets1X + barWidth + 80; // Adjusted spacing between player sections (Renamed)
+                int bullets2X = shield2X + barWidth + 50;
 
-                // Draw hyper-fuel bar for Player 2
+                // Draw Shield bar for Player 2 (Renamed)
                 g2d.setColor(Color.WHITE);
-                g2d.drawString("Hyper-Fuel:", fuel2X, uiBottomY - labelOffset); // Removed player name
-                double hyperFuelProgress2;
-                if (hyperSpeedActive2) {
-                    hyperFuelProgress2 = 1.0 - (double)(System.currentTimeMillis() - hyperspaceActivationTime2) / HYPER_ACTIVE_DURATION;
+                g2d.drawString("Shield:", shield2X, uiBottomY - labelOffset); // Removed player name
+                double shieldProgress2; // Renamed
+                if (shieldActive2) { // Renamed
+                    shieldProgress2 = 1.0 - (double)(System.currentTimeMillis() - shieldActivationTime2) / SHIELD_ACTIVE_DURATION; // Renamed
                 } else {
-                    long timeToRefill = hyperFuelRefillTime2 - System.currentTimeMillis();
+                    long timeToRefill = shieldRefillTime2 - System.currentTimeMillis(); // Renamed
                     if (timeToRefill <= 0) {
-                        hyperFuelProgress2 = 1.0;
+                        shieldProgress2 = 1.0;
                     } else {
-                        hyperFuelProgress2 = 1.0 - (double)timeToRefill / HYPER_RECHARGE_DURATION;
+                        shieldProgress2 = 1.0 - (double)timeToRefill / SHIELD_RECHARGE_DURATION; // Renamed
                     }
                 }
-                if (hyperFuelProgress2 < 0) hyperFuelProgress2 = 0;
-                if (hyperFuelProgress2 > 1) hyperFuelProgress2 = 1;
+                if (shieldProgress2 < 0) shieldProgress2 = 0;
+                if (shieldProgress2 > 1) shieldProgress2 = 1;
 
                 g2d.setColor(Color.DARK_GRAY);
-                g2d.fillRect(fuel2X, uiBottomY - barOffset, barWidth, barHeight);
+                g2d.fillRect(shield2X, uiBottomY - barOffset, barWidth, barHeight);
 
                 g2d.setColor(Color.CYAN);
-                g2d.fillRect(fuel2X, uiBottomY - barOffset, (int)(barWidth * hyperFuelProgress2), barHeight);
+                g2d.fillRect(shield2X, uiBottomY - barOffset, (int)(barWidth * shieldProgress2), barHeight);
                 g2d.setColor(Color.YELLOW);
-                g2d.drawRect(fuel2X, uiBottomY - barOffset, barWidth, barHeight);
+                g2d.drawRect(shield2X, uiBottomY - barOffset, barWidth, barHeight);
 
                 // Draw refuel message if recharging for Player 2
-                if (!hyperSpeedActive2 && System.currentTimeMillis() < hyperFuelRefillTime2) {
+                if (!shieldActive2 && System.currentTimeMillis() < shieldRefillTime2) { // Renamed
                     g2d.setColor(Color.ORANGE);
-                    String msg = "Refueling...";
+                    String msg = "Recharging...";
                     FontMetrics fm = g2d.getFontMetrics();
-                    int msgX = fuel2X + (barWidth - fm.stringWidth(msg)) / 2;
+                    int msgX = shield2X + (barWidth - fm.stringWidth(msg)) / 2;
                     int msgY = uiBottomY - barOffset + barHeight / 2 + fm.getAscent() / 2;
                     g2d.drawString(msg, msgX, msgY);
                 }
@@ -596,13 +698,37 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 int scoreY = HEIGHT / 2 + 80;
                 for (int i = 0; i < Math.min(highScores.size(), 3); i++) { // Display top 3 scores
                     HighScoreEntry entry = highScores.get(i);
-                    drawCenteredString(g2d, (i + 1) + ". " + entry.getUserName() + ": " + entry.getScore() + " (D:" + entry.getDifficulty() + ")",
+                    String scoreText = entry.getUserName() + ": " + entry.getScore() + " (D:" + entry.getDifficulty() + ")";
+                    if (entry.isAI()) {
+                        scoreText += " [AI v" + entry.getAiVersion() + "]";
+                    }
+                    drawCenteredString(g2d, (i + 1) + ". " + scoreText,
                                        new Font("Arial", Font.PLAIN, 20), scoreY + (i * 25));
                 }
             }
 
             // Moved "View All Scores" button to the bottom left
             drawButton(g2d, "View All Scores", WIDTH / 4, HEIGHT - 100, 250, 40, this::showAllHighScores);
+
+            // New: Game Statistics button
+            drawButton(g2d, "Game Statistics", WIDTH / 2, HEIGHT - 100, 250, 40, this::showGameStatistics);
+
+            // New: View Visual Statistics button
+            drawButton(g2d, "View Visual Statistics", WIDTH / 2, HEIGHT - 50, 250, 40, () -> {
+                // Pass relevant statistics to the new dialog
+                StatisticsDialog statsDialog = new StatisticsDialog(
+                    (JFrame) SwingUtilities.getWindowAncestor(this), // Parent frame
+                    bulletsFired,
+                    asteroidsDestroyed,
+                    totalShieldActivations1,
+                    totalShieldActivations2,
+                    lastPlayedState == GameState.ML_PLAYING, // Indicates if AI was playing
+                    aiStats,
+                    state == GameState.MULTIPLAYER_PLAYING
+                );
+                statsDialog.setVisible(true);
+            });
+
 
             // Moved "Back to Main Menu" button to the bottom right
             drawButton(g2d, "Back to Main Menu", 3 * WIDTH / 4, HEIGHT - 100, 250, 50, () -> {
@@ -775,10 +901,31 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     public void actionPerformed(ActionEvent e) {
         long now = System.currentTimeMillis();
 
-        if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING) {
-            // --- Player 1 Logic ---
+        if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING || state == GameState.ML_PLAYING) {
+            // --- Player 1 (Human or AI) Logic ---
+            // Process AI input for Player 1 if in ML_PLAYING state
+            if (state == GameState.ML_PLAYING) {
+                ShipAI.AIAction aiAction = shipAI.determineAction(ship1, asteroids, bullets, currentBullets1, reloading1, shieldActive1, now, lastShotTime1, shieldRefillTime1, SHIELD_ACTIVE_DURATION, BULLET_COOLDOWN); // Renamed shieldActive1
+                up1 = aiAction.thrust;
+                left1 = aiAction.turnLeft;
+                right1 = aiAction.turnRight;
 
-            // Passive reload for Player 1
+                if (aiAction.shoot && !player1ShootKeyHeld) {
+                    shootRequested1 = true;
+                    player1ShootKeyHeld = true;
+                } else if (!aiAction.shoot) {
+                    player1ShootKeyHeld = false;
+                }
+
+                if (aiAction.shield && !player1ShieldKeyHeld) { // Renamed aiAction.hyperspace to aiAction.shield
+                    shieldRequested1 = true; // Renamed hyperspaceRequested1
+                    player1ShieldKeyHeld = true; // Renamed player1HyperspaceKeyHeld
+                } else if (!aiAction.shield) { // Renamed aiAction.hyperspace
+                    player1ShieldKeyHeld = false; // Renamed player1HyperspaceKeyHeld
+                }
+            }
+
+            // Passive reload for Player 1 (applies to both Human and AI)
             if (!reloading1 && currentBullets1 < MAX_BULLETS) {
                 if (now - lastReloadTickTime1 >= RELOAD_INCREMENTAL_DURATION) {
                     currentBullets1++;
@@ -786,7 +933,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 }
             }
 
-            // Full reload (when empty) for Player 1
+            // Full reload (when empty) for Player 1 (applies to both Human and AI)
             if (reloading1) {
                 if (now - reloadStartTime1 > RELOAD_FULL_DURATION) {
                     reloading1 = false;
@@ -795,11 +942,12 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 }
             }
 
-            // Shooting logic for Player 1 (triggered by single press)
+            // Shooting logic for Player 1 (triggered by single press, applies to both Human and AI)
             if (shootRequested1) {
                 if (!reloading1 && currentBullets1 > 0 && (now - lastShotTime1 > BULLET_COOLDOWN)) {
                     bullets.add(new Bullet(ship1));
                     currentBullets1--;
+                    bulletsFired++; // Increment bullets fired
                     lastShotTime1 = now;
                     if (currentBullets1 == 0) {
                         reloading1 = true;
@@ -809,24 +957,27 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 shootRequested1 = false; // Consume the request
             }
 
-            // Hyperspace logic for Player 1 (triggered by single press)
-            if (hyperspaceRequested1) {
-                if (!hyperSpeedActive1 && now >= hyperFuelRefillTime1) {
-                    hyperSpeedActive1 = true;
-                    hyperspaceActivationTime1 = now;
+            // Shield logic for Player 1 (triggered by single press, formerly Hyperspace)
+            if (shieldRequested1) { // Renamed hyperspaceRequested1
+                if (!shieldActive1 && now >= shieldRefillTime1) { // Renamed hyperSpeedActive1, hyperFuelRefillTime1
+                    shieldActive1 = true; // Renamed hyperSpeedActive1
+                    shieldActivationTime1 = now; // Renamed hyperspaceActivationTime1
                     ship1.setInvincible();
+                    totalShieldActivations1++; // Increment shield activations (Renamed)
                 }
-                hyperspaceRequested1 = false; // Consume the request
+                shieldRequested1 = false; // Consume the request (Renamed)
             }
 
-            // Deactivate hyper-speed after duration for Player 1
-            if (hyperSpeedActive1 && now - hyperspaceActivationTime1 > HYPER_ACTIVE_DURATION) {
-                hyperSpeedActive1 = false;
-                hyperFuelRefillTime1 = now + HYPER_RECHARGE_DURATION; // Start recharge cooldown
+            // Deactivate shield after duration for Player 1 (formerly Hyperspace)
+            if (shieldActive1 && now - shieldActivationTime1 > SHIELD_ACTIVE_DURATION) { // Renamed hyperSpeedActive1, hyperspaceActivationTime1, HYPER_ACTIVE_DURATION
+                shieldActive1 = false; // Renamed hyperSpeedActive1
+                shieldRefillTime1 = now + SHIELD_RECHARGE_DURATION; // Start recharge cooldown (Renamed)
+                totalShieldDuration1 += SHIELD_ACTIVE_DURATION; // Add duration to total (Renamed)
             }
-
+            
             // Update ship 1
-            ship1.update(up1, left1, right1, hyperSpeedActive1, HYPER_SPEED_MULTIPLIER, WIDTH, HEIGHT);
+            // Pass ship speed reduction factor if shield is active
+            ship1.update(up1, left1, right1, shieldActive1, SHIP_SPEED_REDUCTION_FACTOR, WIDTH, HEIGHT);
 
             // --- Player 2 Logic (if multiplayer) ---
             if (state == GameState.MULTIPLAYER_PLAYING) {
@@ -852,6 +1003,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                     if (!reloading2 && currentBullets2 > 0 && (now - lastShotTime2 > BULLET_COOLDOWN)) {
                         bullets.add(new Bullet(ship2));
                         currentBullets2--;
+                        bulletsFired++; // Increment bullets fired
                         lastShotTime2 = now;
                         if (currentBullets2 == 0) {
                             reloading2 = true;
@@ -861,35 +1013,50 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                     shootRequested2 = false; // Consume the request
                 }
 
-                // Hyperspace logic for Player 2 (triggered by single press)
-                if (hyperspaceRequested2) {
-                    if (!hyperSpeedActive2 && now >= hyperFuelRefillTime2) {
-                        hyperSpeedActive2 = true;
-                        hyperspaceActivationTime2 = now;
+                // Shield logic for Player 2 (formerly Hyperspace)
+                if (shieldRequested2) { // Renamed hyperspaceRequested2
+                    if (!shieldActive2 && now >= shieldRefillTime2) { // Renamed hyperSpeedActive2, hyperFuelRefillTime2
+                        shieldActive2 = true; // Renamed hyperSpeedActive2
+                        shieldActivationTime2 = now; // Renamed hyperspaceActivationTime2
                         ship2.setInvincible();
+                        totalShieldActivations2++; // Increment shield activations (Renamed)
                     }
-                    hyperspaceRequested2 = false; // Consume the request
+                    shieldRequested2 = false; // Consume the request (Renamed)
                 }
 
-                // Deactivate hyper-speed after duration for Player 2
-                if (hyperSpeedActive2 && now - hyperspaceActivationTime2 > HYPER_ACTIVE_DURATION) {
-                    hyperSpeedActive2 = false;
-                    hyperFuelRefillTime2 = now + HYPER_RECHARGE_DURATION;
+                // Deactivate shield after duration for Player 2 (formerly Hyperspace)
+                if (shieldActive2 && now - shieldActivationTime2 > SHIELD_ACTIVE_DURATION) { // Renamed hyperSpeedActive2, hyperspaceActivationTime2, HYPER_ACTIVE_DURATION
+                    shieldActive2 = false; // Renamed hyperSpeedActive2
+                    shieldRefillTime2 = now + SHIELD_RECHARGE_DURATION; // Renamed hyperFuelRefillTime2, HYPER_RECHARGE_DURATION
+                    totalShieldDuration2 += SHIELD_ACTIVE_DURATION; // Add duration to total (Renamed)
                 }
 
                 // Update ship 2
-                ship2.update(up2, left2, right2, hyperSpeedActive2, HYPER_SPEED_MULTIPLIER, WIDTH, HEIGHT);
+                // Pass ship speed reduction factor if shield is active
+                ship2.update(up2, left2, right2, shieldActive2, SHIP_SPEED_REDUCTION_FACTOR, WIDTH, HEIGHT);
             }
 
 
             bullets.forEach(b -> b.update(WIDTH, HEIGHT));
-            asteroids.forEach(Asteroid::update);
+            
+            // Determine asteroid speed multiplier based on shield active status
+            double currentAsteroidSpeedMultiplier = 1.0; // Default to normal speed
+            if (shieldActive1 || shieldActive2) { // Check both players for slowdown effect
+                currentAsteroidSpeedMultiplier = ASTEROID_SLOWDOWN_MULTIPLIER;
+            }
+            // Update asteroids with the current speed multiplier
+            for (Asteroid a : asteroids) {
+                a.update(currentAsteroidSpeedMultiplier);
+            }
+
             effects.forEach(PopEffect::update);
 
             if (state == GameState.PLAYING_SINGLE) {
                 checkCollisionsSinglePlayer();
-            } else { // MULTIPLAYER_PLAYING
+            } else if (state == GameState.MULTIPLAYER_PLAYING) {
                 checkCollisionsMultiplayer();
+            } else { // ML_PLAYING
+                checkCollisionsMLPlayer();
             }
             removeOffscreen();
 
@@ -916,12 +1083,37 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             // The multiplier 1.0 (instead of 2.0 previously) makes the increase less steep.
             if (random.nextInt(100) < (2 + difficultyLevel * 1)) {
                 asteroids.add(new Asteroid(random, difficultyLevel));
+                totalAsteroidsSpawned++; // Count newly spawned asteroids
             }
 
             // Check for game over (multiplayer condition)
             if (state == GameState.MULTIPLAYER_PLAYING && lives1 <= 0 && lives2 <= 0) {
+                gameEndTime = now; // Record game end time
+                lastPlayedState = state; // Store current state before GAME_OVER
                 state = GameState.GAME_OVER;
-                saveOrUpdateHighScore(userName1, score, initialDifficulty); // Pass initialDifficulty
+                saveOrUpdateHighScore(userName1, score, initialDifficulty, false, null); // Human player
+            } else if (state == GameState.PLAYING_SINGLE && lives1 <= 0) {
+                gameEndTime = now; // Record game end time
+                lastPlayedState = state; // Store current state before GAME_OVER
+                state = GameState.GAME_OVER;
+                saveOrUpdateHighScore(userName1, score, initialDifficulty, false, null); // Human player
+            } else if (state == GameState.ML_PLAYING && lives1 <= 0) {
+                gameEndTime = now; // Record game end time
+                lastPlayedState = state; // Store current state before GAME_OVER
+                state = GameState.GAME_OVER;
+                // Check if this AI score is a new high score for this difficulty
+                boolean newHighScoreAchieved = true;
+                for (HighScoreEntry entry : highScores) {
+                    if (entry.isAI() && entry.getDifficulty() == initialDifficulty && score <= entry.getScore()) {
+                        newHighScoreAchieved = false;
+                        break;
+                    }
+                }
+                if (newHighScoreAchieved) {
+                    aiStats.highScoreCount++;
+                }
+                saveAIStats(); // Always save AI stats on game over for ML mode
+                saveOrUpdateHighScore("Jarvis", score, initialDifficulty, true, aiStats.getFormattedVersion()); // AI player name changed to Jarvis
             }
 
 
@@ -946,8 +1138,9 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     @Override
     public void keyPressed(KeyEvent e) {
         int keyCode = e.getKeyCode();
-        if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING) {
-            // Player 1 Controls
+        // Key presses for both human players and AI in ML_PLAYING state
+        if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING || state == GameState.ML_PLAYING) {
+            // Player 1 Controls (Human or AI in ML_PLAYING)
             switch (keyCode) {
                 case KeyEvent.VK_UP -> up1 = true;
                 case KeyEvent.VK_LEFT -> left1 = true;
@@ -960,11 +1153,11 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                     player1ShootKeyHeld = true; // Mark key as held
                 }
             }
-            // Handle hyperspace key press for single activation
-            if (keyCode == player1HyperspaceKey) {
-                if (!player1HyperspaceKeyHeld) {
-                    hyperspaceRequested1 = true; // Request hyperspace for the next tick
-                    player1HyperspaceKeyHeld = true; // Mark key as held
+            // Handle shield key press for single activation
+            if (keyCode == player1ShieldKey) { // Renamed player1HyperspaceKey
+                if (!player1ShieldKeyHeld) { // Renamed player1HyperspaceKeyHeld
+                    shieldRequested1 = true; // Request shield for the next tick (Renamed)
+                    player1ShieldKeyHeld = true; // Mark key as held (Renamed)
                 }
             }
 
@@ -982,11 +1175,11 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                         player2ShootKeyHeld = true;
                     }
                 }
-                // Handle hyperspace key press for single activation
-                if (keyCode == player2HyperspaceKey) {
-                    if (!player2HyperspaceKeyHeld) {
-                        hyperspaceRequested2 = true;
-                        player2HyperspaceKeyHeld = true;
+                // Handle shield key press for single activation
+                if (keyCode == player2ShieldKey) { // Renamed player2HyperspaceKey
+                    if (!player2ShieldKeyHeld) { // Renamed player2HyperspaceKeyHeld
+                        shieldRequested2 = true; // Renamed
+                        player2ShieldKeyHeld = true; // Renamed
                     }
                 }
             }
@@ -996,8 +1189,19 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         if (keyCode == KeyEvent.VK_ENTER) {
             if (state == GameState.GAME_OVER) {
                 initGame(); // Re-initialize game state
-                state = GameState.PLAYING_SINGLE; // Default to single player after game over
-                spawnInitialAsteroids(); // Spawn asteroids for the new game
+                // Restart into the mode that was just played
+                if (lastPlayedState == GameState.ML_PLAYING) {
+                    lives1 = jarvisLivesInput; // Set AI lives back to configured value on restart
+                    spawnAsteroids(7); // Restart ML mode with appropriate asteroids
+                    state = GameState.ML_PLAYING;
+                } else if (lastPlayedState == GameState.MULTIPLAYER_PLAYING) {
+                    spawnAsteroids(5); // Restart multiplayer with appropriate asteroids
+                    state = GameState.MULTIPLAYER_PLAYING;
+                } else { // Default to single player if lastPlayedState is unknown or single player
+                    spawnAsteroids(3);
+                    state = GameState.PLAYING_SINGLE;
+                }
+                gameStartTime = System.currentTimeMillis(); // Record game start time on restart
             }
         }
     }
@@ -1009,7 +1213,8 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     @Override
     public void keyReleased(KeyEvent e) {
         int keyCode = e.getKeyCode();
-        if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING) {
+        // Key releases for both human players and AI in ML_PLAYING state
+        if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING || state == GameState.ML_PLAYING) {
             // Player 1 Controls
             switch (keyCode) {
                 case KeyEvent.VK_UP -> up1 = false;
@@ -1020,8 +1225,8 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             if (keyCode == player1ShootKey) {
                 player1ShootKeyHeld = false;
             }
-            if (keyCode == player1HyperspaceKey) {
-                player1HyperspaceKeyHeld = false;
+            if (keyCode == player1ShieldKey) { // Renamed player1HyperspaceKey
+                player1ShieldKeyHeld = false; // Renamed player1HyperspaceKeyHeld
             }
 
             // Player 2 Controls
@@ -1035,8 +1240,8 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 if (keyCode == player2ShootKey) {
                     player2ShootKeyHeld = false;
                 }
-                if (keyCode == player2HyperspaceKey) {
-                    player2HyperspaceKeyHeld = false;
+                if (keyCode == player2ShieldKey) { // Renamed player2HyperspaceKey
+                    player2ShieldKeyHeld = false; // Renamed player2HyperspaceKeyHeld
                 }
             }
         }
@@ -1066,9 +1271,11 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                     effects.add(new PopEffect(asteroid.x, asteroid.y, random));
                     // Score based on asteroid size
                     score += getScoreForAsteroid(asteroid.size);
+                    asteroidsDestroyed++; // Increment asteroids destroyed
                     if (asteroid.size > Asteroid.MIN_SPLIT_SIZE) {
                         for (int i = 0; i < 2; i++) {
                             newAsteroids.add(new Asteroid(asteroid.x, asteroid.y, asteroid.size / 2, random, difficultyLevel));
+                            totalAsteroidsSpawned++; // Count split asteroids
                         }
                     }
                     asteroidIterator.remove();
@@ -1085,8 +1292,10 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 lives1--;
                 effects.add(new PopEffect(ship1.x, ship1.y, random));
                 if (lives1 <= 0) {
+                    gameEndTime = System.currentTimeMillis(); // Record game end time
+                    lastPlayedState = state; // Store current state before GAME_OVER
                     state = GameState.GAME_OVER;
-                    saveOrUpdateHighScore(userName1, score, initialDifficulty); // Pass initialDifficulty
+                    saveOrUpdateHighScore(userName1, score, initialDifficulty, false, null);
                 } else {
                     ship1.resetPosition(WIDTH / 2, HEIGHT / 2);
                 }
@@ -1112,9 +1321,11 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                     effects.add(new PopEffect(asteroid.x, asteroid.y, random));
                     // Score based on asteroid size for multiplayer as well
                     score += getScoreForAsteroid(asteroid.size);
+                    asteroidsDestroyed++; // Increment asteroids destroyed
                     if (asteroid.size > Asteroid.MIN_SPLIT_SIZE) {
                         for (int i = 0; i < 2; i++) {
                             newAsteroids.add(new Asteroid(asteroid.x, asteroid.y, asteroid.size / 2, random, difficultyLevel));
+                            totalAsteroidsSpawned++; // Count split asteroids
                         }
                     }
                     asteroidIterator.remove();
@@ -1171,6 +1382,58 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     }
 
     /**
+     * Checks for collisions in ML mode (AI controlled ship).
+     */
+    void checkCollisionsMLPlayer() {
+        List<Asteroid> newAsteroids = new ArrayList<>();
+
+        Iterator<Bullet> bulletIterator = bullets.iterator();
+        while (bulletIterator.hasNext()) {
+            Bullet bullet = bulletIterator.next();
+            Iterator<Asteroid> asteroidIterator = asteroids.iterator();
+            while (asteroidIterator.hasNext()) {
+                Asteroid asteroid = asteroidIterator.next();
+                if (bullet.getBounds().intersects(asteroid.getBounds())) {
+                    bulletIterator.remove();
+                    effects.add(new PopEffect(asteroid.x, asteroid.y, random));
+                    score += getScoreForAsteroid(asteroid.size);
+                    asteroidsDestroyed++; // Increment asteroids destroyed
+                    // Provide positive feedback to AI when it hits an asteroid
+                    shipAI.receiveFeedback(true, false);
+                    if (asteroid.size > Asteroid.MIN_SPLIT_SIZE) {
+                        for (int i = 0; i < 2; i++) {
+                            newAsteroids.add(new Asteroid(asteroid.x, asteroid.y, asteroid.size / 2, random, difficultyLevel));
+                            totalAsteroidsSpawned++; // Count split asteroids
+                        }
+                    }
+                    asteroidIterator.remove();
+                    break;
+                }
+            }
+        }
+        asteroids.addAll(newAsteroids);
+
+        if (ship1.isInvincible()) return;
+
+        for (Asteroid asteroid : asteroids) {
+            if (asteroid.getBounds().intersects(ship1.getBounds())) {
+                lives1--;
+                effects.add(new PopEffect(ship1.x, ship1.y, random));
+                // Provide negative feedback to AI when its ship is hit by an asteroid
+                shipAI.receiveFeedback(false, true);
+                if (lives1 <= 0) {
+                    gameEndTime = System.currentTimeMillis(); // Record game end time
+                    lastPlayedState = state; // Store current state before GAME_OVER
+                    state = GameState.GAME_OVER; // Will handle AI score saving in actionPerformed
+                } else {
+                    ship1.resetPosition(WIDTH / 2, HEIGHT / 2);
+                }
+                break;
+            }
+        }
+    }
+
+    /**
      * Calculates the score awarded for destroying an asteroid based on its size.
      * Smaller asteroids give more points.
      * @param asteroidSize The size of the asteroid.
@@ -1194,28 +1457,40 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     }
 
     /**
-     * Saves or updates the high score for a given user.
-     * @param username The username of the player.
+     * Saves or updates the high score for a given user/AI.
+     * @param username The username/name of the player.
      * @param score The score to save.
      * @param difficulty The difficulty level at which the score was achieved.
+     * @param isAI True if this is an AI score, false for human.
+     * @param aiVersion The AI version string, if applicable (null otherwise).
      */
-    private void saveOrUpdateHighScore(String username, int score, int difficulty) {
-        boolean userFound = false;
+    private void saveOrUpdateHighScore(String username, int score, int difficulty, boolean isAI, String aiVersion) {
+        boolean entryUpdated = false;
         for (HighScoreEntry entry : highScores) {
-            // Check if user and difficulty match for updating
-            if (entry.getUserName().equals(username) && entry.getDifficulty() == difficulty) {
-                userFound = true;
+            // Check if user, difficulty, and AI status match for updating
+            if (entry.getUserName().equals(username) && entry.getDifficulty() == difficulty && entry.isAI() == isAI) {
                 if (score > entry.getScore()) {
                     entry.score = score; // Update score if higher
+                    entry.aiVersion = aiVersion; // Update AI version if applicable
                 }
-                break; // User found, no need to check further
+                entryUpdated = true;
+                break;
             }
         }
-        if (!userFound) {
-            // User not in list or same user with different difficulty, add new entry
-            highScores.add(new HighScoreEntry(username, score, difficulty));
+        if (!entryUpdated) {
+            // Add new entry if no matching one was found
+            highScores.add(new HighScoreEntry(username, score, difficulty, isAI, aiVersion));
         }
-        Collections.sort(highScores, Comparator.comparingInt(HighScoreEntry::getScore).reversed());
+        // Sort by score (descending), then by difficulty (ascending for same score), then by AI status (human first)
+        Collections.sort(highScores, (e1, e2) -> {
+            int scoreCompare = Integer.compare(e2.getScore(), e1.getScore());
+            if (scoreCompare != 0) return scoreCompare;
+            int difficultyCompare = Integer.compare(e1.getDifficulty(), e2.getDifficulty()); // Higher difficulty means better for same score
+            if (difficultyCompare != 0) return difficultyCompare;
+            // Human scores before AI scores if all else is equal
+            return Boolean.compare(e1.isAI(), e2.isAI());
+        });
+
         // Keep only the top 20 scores (or whatever limit you want for saving)
         if (highScores.size() > 20) {
             highScores = highScores.subList(0, 20);
@@ -1254,7 +1529,13 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(HIGHSCORE_FILE))) {
             highScores = (List<HighScoreEntry>) ois.readObject();
             // Ensure the loaded list is sorted, just in case
-            Collections.sort(highScores, Comparator.comparingInt(HighScoreEntry::getScore).reversed());
+            Collections.sort(highScores, (e1, e2) -> {
+                int scoreCompare = Integer.compare(e2.getScore(), e1.getScore());
+                if (scoreCompare != 0) return scoreCompare;
+                int difficultyCompare = Integer.compare(e1.getDifficulty(), e2.getDifficulty());
+                if (difficultyCompare != 0) return difficultyCompare;
+                return Boolean.compare(e1.isAI(), e2.isAI());
+            });
         } catch (FileNotFoundException e) {
             System.out.println("High score file not found. Starting with an empty list.");
             highScores = new ArrayList<>(); // Initialize empty list
@@ -1271,7 +1552,38 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     }
 
     /**
-     * Displays a popup window showing all high scores, with an option to filter by difficulty.
+     * Loads AI statistics from a file. If no file exists, initializes new stats.
+     */
+    private void loadAIStats() {
+        try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(AI_STATS_FILE))) {
+            aiStats = (AIStats) ois.readObject();
+        } catch (FileNotFoundException e) {
+            System.out.println("AI stats file not found. Initializing new AI stats (v1.0.0).");
+            aiStats = new AIStats(); // New stats, starts at 1.0.0
+        } catch (InvalidClassException e) {
+            System.err.println("InvalidClassException when loading AI stats. AIStats class structure might have changed. Deleting old stats file and starting new.");
+            new File(AI_STATS_FILE).delete();
+            aiStats = new AIStats();
+        } catch (IOException | ClassNotFoundException e) {
+            System.err.println("Error loading AI stats: " + e.getMessage());
+            aiStats = new AIStats(); // Fallback to new stats
+        }
+    }
+
+    /**
+     * Saves AI statistics to a file.
+     */
+    private void saveAIStats() {
+        try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(AI_STATS_FILE))) {
+            oos.writeObject(aiStats);
+        } catch (IOException e) {
+            System.err.println("Error saving AI stats: " + e.getMessage());
+        }
+    }
+
+
+    /**
+     * Displays a popup window showing all high scores, with an option to filter by difficulty and player type.
      */
     private void showAllHighScores() {
         String[] difficultyOptions = new String[11];
@@ -1290,38 +1602,65 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 difficultyOptions[0] // Default to "All Difficulties"
         );
 
+        if (selectedDifficultyStr == null) return; // User cancelled
+
         int filterDifficulty = -1; // -1 means no filter (show all)
-        if (selectedDifficultyStr != null && !selectedDifficultyStr.equals("All Difficulties")) {
+        if (!selectedDifficultyStr.equals("All Difficulties")) {
             try {
                 filterDifficulty = Integer.parseInt(selectedDifficultyStr);
             } catch (NumberFormatException e) {
-                // Should not happen with dropdown, but good practice
                 System.err.println("Invalid difficulty selected for filter: " + selectedDifficultyStr);
             }
         }
 
+        String[] playerTypeOptions = {"All Players", "Human Players", "AI Players"};
+        String selectedPlayerTypeStr = (String) JOptionPane.showInputDialog(
+                this,
+                "Select Player Type to View:",
+                "Filter High Scores",
+                JOptionPane.QUESTION_MESSAGE,
+                null,
+                playerTypeOptions,
+                playerTypeOptions[0] // Default to "All Players"
+        );
+
+        if (selectedPlayerTypeStr == null) return; // User cancelled
+
+        Boolean filterIsAI = null; // null for all, true for AI, false for Human
+        if (selectedPlayerTypeStr.equals("Human Players")) {
+            filterIsAI = false;
+        } else if (selectedPlayerTypeStr.equals("AI Players")) {
+            filterIsAI = true;
+        }
+
+
         StringBuilder sb = new StringBuilder("All High Scores:\n\n");
-        sb.append(String.format("%-20s %-10s %s\n", "Player", "Score", "Difficulty")); // Table header
-        sb.append("------------------------------------------\n");
+        sb.append(String.format("%-4s %-15s %-7s %-5s %s\n", "Rank", "Player", "Score", "Diff", "AI Version")); // Adjusted table header
+        sb.append("----------------------------------------------------\n");
 
         List<HighScoreEntry> filteredScores = new ArrayList<>();
-        if (filterDifficulty == -1) {
-            filteredScores.addAll(highScores);
-        } else {
-            for (HighScoreEntry entry : highScores) {
-                if (entry.getDifficulty() == filterDifficulty) {
-                    filteredScores.add(entry);
-                }
+        for (HighScoreEntry entry : highScores) {
+            boolean matchesDifficulty = (filterDifficulty == -1 || entry.getDifficulty() == filterDifficulty);
+            boolean matchesPlayerType = (filterIsAI == null || entry.isAI() == filterIsAI);
+
+            if (matchesDifficulty && matchesPlayerType) {
+                filteredScores.add(entry);
             }
         }
 
+
         if (filteredScores.isEmpty()) {
-            sb.append("No high scores recorded yet for this difficulty. Play a game!");
+            sb.append("No high scores recorded yet for the selected filters.\nPlay a game!");
         } else {
             for (int i = 0; i < filteredScores.size(); i++) {
                 HighScoreEntry entry = filteredScores.get(i);
-                // Adjust formatting for alignment. Max username length or fixed.
-                sb.append(String.format("%-2d. %-15s %-10d %d\n", (i + 1), entry.getUserName(), entry.getScore(), entry.getDifficulty()));
+                String aiVersionDisplay = entry.isAI() ? "v" + entry.getAiVersion() : "-";
+                sb.append(String.format("%-4d %-15s %-7d %-5d %s\n",
+                                        (i + 1),
+                                        entry.getUserName(),
+                                        entry.getScore(),
+                                        entry.getDifficulty(),
+                                        aiVersionDisplay));
             }
         }
         // Use a JTextArea inside a JScrollPane for potentially long lists
@@ -1329,15 +1668,62 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12)); // Use monospaced font for alignment
         textArea.setEditable(false);
         JScrollPane scrollPane = new JScrollPane(textArea);
-        scrollPane.setPreferredSize(new Dimension(400, 400)); // Set preferred size for the scroll pane
+        scrollPane.setPreferredSize(new Dimension(550, 400)); // Increased width for new column
 
         JOptionPane.showMessageDialog(this, scrollPane, "All High Scores", JOptionPane.INFORMATION_MESSAGE);
     }
 
     /**
+     * Displays a popup window with detailed game statistics.
+     */
+    private void showGameStatistics() {
+        StringBuilder sb = new StringBuilder("Game Statistics:\n\n");
+
+        double timePlayedSeconds = (gameEndTime - gameStartTime) / 1000.0;
+        sb.append(String.format("Time Played: %.2f seconds\n", timePlayedSeconds));
+        sb.append(String.format("Final Score: %d\n", score));
+        sb.append(String.format("Difficulty: %d\n", initialDifficulty));
+        sb.append(String.format("Total Asteroids Spawned: %d\n", totalAsteroidsSpawned));
+        sb.append(String.format("Asteroids Destroyed: %d\n", asteroidsDestroyed));
+
+        String hitMissRatioStr;
+        if (bulletsFired > 0) {
+            double ratio = (double) asteroidsDestroyed / bulletsFired;
+            hitMissRatioStr = String.format("%.2f (Hits / Shots)", ratio);
+        } else {
+            hitMissRatioStr = "N/A (No bullets fired)";
+        }
+        sb.append(String.format("Hit/Miss Ratio: %s\n", hitMissRatioStr));
+
+        // Shield Activations for Player 1 / AI (Renamed)
+        long totalShieldCost1 = (long)totalShieldActivations1 * SHIELD_COST_PER_ACTIVATION; // Renamed
+        sb.append(String.format("Player 1 Shield Activations: %d\n", totalShieldActivations1)); // Renamed
+        sb.append(String.format("Player 1 Total Shield Duration: %.2f seconds\n", totalShieldDuration1 / 1000.0)); // Renamed
+        sb.append(String.format("Player 1 Estimated Shield Cost: %d units\n", totalShieldCost1)); // Renamed
+
+        // Shield Activations for Player 2 (if multiplayer) (Renamed)
+        if (lastPlayedState == GameState.MULTIPLAYER_PLAYING) {
+            long totalShieldCost2 = (long)totalShieldActivations2 * SHIELD_COST_PER_ACTIVATION; // Renamed
+            sb.append(String.format("Player 2 Shield Activations: %d\n", totalShieldActivations2)); // Renamed
+            sb.append(String.format("Player 2 Total Shield Duration: %.2f seconds\n", totalShieldDuration2 / 1000.0)); // Renamed
+            sb.append(String.format("Player 2 Estimated Shield Cost: %d units\n", totalShieldCost2)); // Renamed
+        }
+
+
+        JTextArea textArea = new JTextArea(sb.toString());
+        textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        textArea.setEditable(false);
+        JScrollPane scrollPane = new JScrollPane(textArea);
+        scrollPane.setPreferredSize(new Dimension(450, 300)); // Adjusted size for statistics window
+
+        JOptionPane.showMessageDialog(this, scrollPane, "Game Statistics", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+
+    /**
      * Enum to define the different states of the game.
      */
-    enum GameState { START, PLAYING_SINGLE, MULTIPLAYER_SETUP_NAMES, MULTIPLAYER_DISPLAY_QRS, MULTIPLAYER_PLAYING, GAME_OVER }
+    enum GameState { START, PLAYING_SINGLE, MULTIPLAYER_SETUP_NAMES, MULTIPLAYER_DISPLAY_QRS, MULTIPLAYER_PLAYING, ML_PLAYING, GAME_OVER }
 
     // MouseListener implementations for button clicks
     @Override
@@ -1414,7 +1800,7 @@ class Ship {
     private final double FRICTION = 0.98; // Reduces velocity over time
     private final double ROTATION_SPEED = 4.5; // Increased for faster/smoother rotation
     public final int SIZE = 20; // Represents roughly half width/height for bounding box and drawing
-    private final int INVINCIBILITY_DURATION = 1500; // milliseconds after spawn/hit/hyperspace
+    private final int INVINCIBILITY_DURATION = 1500; // milliseconds after spawn/hit/shield
     private long invincibilityEndTime = 0;
     private final Pattern pattern; // New field for ship pattern
 
@@ -1469,13 +1855,18 @@ class Ship {
      * @param up Whether the up arrow key is pressed.
      * @param left Whether the left arrow key is pressed.
      * @param right Whether the right arrow key is pressed.
-     * @param hyperSpeedActive Whether hyper-speed is currently active.
-     * @param hyperSpeedMultiplier The multiplier to apply for hyper-speed acceleration.
+     * @param shieldActive Whether shield is currently active.
+     * @param shipSpeedReductionFactor The factor to apply for ship speed reduction (e.g., 0.5 for half speed).
      * @param screenWidth Width of the game screen.
      * @param screenHeight Height of the game screen.
      */
-    void update(boolean up, boolean left, boolean right, boolean hyperSpeedActive, double hyperSpeedMultiplier, int screenWidth, int screenHeight) {
+    void update(boolean up, boolean left, boolean right, boolean shieldActive, double shipSpeedReductionFactor, int screenWidth, int screenHeight) {
         double currentAcceleration = ACCELERATION;
+        // If shield is active, apply the speed reduction multiplier (ship moves slower)
+        if (shieldActive) {
+            currentAcceleration *= shipSpeedReductionFactor;
+        }
+
         if (up) {
             // Apply thrust in the direction of the ship's angle
             dx += Math.cos(Math.toRadians(angle)) * currentAcceleration;
@@ -1554,14 +1945,14 @@ class Ship {
                 g2d.fill(shipBody);
             }
 
-            // Red shield circle: a bit bigger than the ship
+            // Green shield circle: a bit bigger than the ship
             int shieldRadius = SIZE + 5; // SIZE is half width. Shield radius is ship's half width + 5.
             int shieldDiameter = shieldRadius * 2;
 
-            g2d.setColor(new Color(255, 0, 0, 150)); // Semi-transparent red
+            g2d.setColor(new Color(0, 255, 0, 150)); // Semi-transparent green for shield
             // Draw the shield centered on the ship's origin (which is currently translated to x,y)
             g2d.fill(new Ellipse2D.Double(-shieldRadius, -shieldRadius, shieldDiameter, shieldDiameter));
-            g2d.setColor(Color.RED);
+            g2d.setColor(Color.GREEN);
             g2d.draw(new Ellipse2D.Double(-shieldRadius, -shieldRadius, shieldDiameter, shieldDiameter));
         }
 
@@ -1716,8 +2107,9 @@ class Asteroid {
         double effectiveSplitSpeed = baseSplitSpeed * sizeSpeedMultiplier;
 
         // Apply difficulty level to split asteroid speed as well
-        // At difficulty 1, this is 1 + (1 / 20) = 1.05.
-        // We want it to be slower at level 1, so adjust the base multiplier.
+        // At difficulty 1: 0.5 + 1 * 0.05 = 0.55 (55% of baseSplitSpeed)
+        // At difficulty 10: 0.5 + 10 * 0.05 = 1.0 (100% of baseSplitSpeed)
+
         effectiveSplitSpeed *= (0.5 + (double) this.difficultyLevel * 0.05); // Each difficulty level adds 5% speed to split asteroids
         // For level 1: 0.5 + 0.05 = 0.55 (55% of baseSplitSpeed)
         // For level 10: 0.5 + 0.5 = 1.0 (100% of baseSplitSpeed)
@@ -1792,10 +2184,11 @@ class Asteroid {
 
     /**
      * Updates the asteroid's position based on its velocity.
+     * @param speedMultiplier A multiplier to apply to the asteroid's movement speed.
      */
-    void update() {
-        x += dx;
-        y += dy;
+    void update(double speedMultiplier) {
+        x += dx * speedMultiplier;
+        y += dy * speedMultiplier;
     }
 
     /**
@@ -1892,15 +2285,19 @@ class PopEffect {
  * Represents a high score entry, which is serializable for saving to a file.
  */
 class HighScoreEntry implements Serializable {
-    private static final long serialVersionUID = 2L; // Updated serialVersionUID
+    private static final long serialVersionUID = 3L; // Updated serialVersionUID
     String userName;
     int score;
-    int difficulty; // New field for difficulty
+    int difficulty;
+    boolean isAI; // New field to indicate if the score is from an AI
+    String aiVersion; // New field to store AI version if applicable
 
-    public HighScoreEntry(String userName, int score, int difficulty) {
+    public HighScoreEntry(String userName, int score, int difficulty, boolean isAI, String aiVersion) {
         this.userName = userName;
         this.score = score;
         this.difficulty = difficulty;
+        this.isAI = isAI;
+        this.aiVersion = aiVersion;
     }
 
     public String getUserName() {
@@ -1913,5 +2310,626 @@ class HighScoreEntry implements Serializable {
 
     public int getDifficulty() {
         return difficulty;
+    }
+
+    public boolean isAI() {
+        return isAI;
+    }
+
+    public String getAiVersion() {
+        return aiVersion;
+    }
+}
+
+/**
+ * Stores AI specific statistics for versioning.
+ * This class is serializable to persist AI progress.
+ */
+class AIStats implements Serializable {
+    private static final long serialVersionUID = 1L;
+    int majorVersion;
+    int highScoreCount;
+    int totalGames;
+    double aggressionBias; // New: To store a bias for aggression over games
+
+    public AIStats() {
+        this.majorVersion = 1;
+        this.highScoreCount = 0;
+        this.totalGames = 0;
+        this.aggressionBias = 0.0; // Starts neutral
+    }
+
+    public void incrementMajorVersion() {
+        this.majorVersion++;
+        this.highScoreCount = 0; // Reset high score count on major update
+        this.totalGames = 0; // Reset total games on major update
+        this.aggressionBias = 0.0; // Reset aggression bias too
+    }
+
+    public String getFormattedVersion() {
+        return majorVersion + "." + highScoreCount + "." + totalGames;
+    }
+
+    public double getAggressionBias() {
+        return aggressionBias;
+    }
+
+    public void setAggressionBias(double aggressionBias) {
+        this.aggressionBias = aggressionBias;
+    }
+}
+
+/**
+ * Represents the Artificial Intelligence player logic.
+ * This is a rule-based AI.
+ */
+class ShipAI {
+    private final Random random;
+    private final int screenWidth;
+    private final int screenHeight;
+    private AIStats aiStats; // Reference to the persistent AI statistics
+
+    // Base AI tuning parameters (these are now constants within ShipAI)
+    private static final double BASE_ASTEROID_DANGER_DISTANCE = 80;
+    private static final double BASE_COLLISION_AVOID_ANGLE_THRESHOLD = 30;
+    private static final double BASE_SHIELD_THREAT_COUNT = 3; // Renamed
+    private static final double BASE_SHOOT_ALIGN_THRESHOLD = 7;
+    private static final double BASE_MAX_AI_APPROACH_SPEED = 5.0;
+    private static final double BASE_MIN_THRUST_DISTANCE_TO_TARGET = 70;
+
+    // Dynamic AI parameters, influenced by aggressionFactor
+    private double current_asteroid_danger_distance;
+    private double current_shield_threat_count; // Renamed
+    private double current_shoot_align_threshold;
+    private double current_min_thrust_distance_to_target;
+
+    // Aggression state - this is *per game session* and derived from a cumulative score
+    private double current_ai_score = 0; // Cumulative score for AI performance in current game
+    private double aiAggressionFactor = 1.0; // Influences AI behavior, default to neutral
+
+    // Constants for mapping current_ai_score to aiAggressionFactor
+    private static final double MIN_SCORE_FOR_CAUTIOUS = -500; // Score at which AI becomes most cautious
+    private static final double MAX_SCORE_FOR_AGGRESSIVE = 500;  // Score at which AI becomes most aggressive
+    private static final double MIN_AGGRESSION_FACTOR = 0.5;    // Most cautious aggression multiplier
+    private static final double MAX_AGGRESSION_FACTOR = 2.0;     // Most aggressive aggression multiplier
+
+
+    public ShipAI(Random random, int screenWidth, int screenHeight, AIStats aiStats) {
+        this.random = random;
+        this.screenWidth = screenWidth;
+        this.screenHeight = screenHeight;
+        this.aiStats = aiStats; // Set reference to shared AIStats object
+
+        // Initialize current_ai_score based on aggression bias for a smoother start across games
+        // This makes past performance subtly influence starting aggression
+        this.current_ai_score = aiStats.getAggressionBias() * (MAX_SCORE_FOR_AGGRESSIVE - MIN_SCORE_FOR_CAUTIOUS) / (MAX_AGGRESSION_FACTOR - MIN_AGGRESSION_FACTOR);
+        this.current_ai_score = Math.max(MIN_SCORE_FOR_CAUTIOUS, Math.min(MAX_SCORE_FOR_AGGRESSIVE, this.current_ai_score));
+
+        updateAggressionParameters(); // Set initial aggression parameters
+    }
+
+    /**
+     * Updates the aiAggressionFactor and all derived AI parameters based on the current_ai_score.
+     */
+    private void updateAggressionParameters() {
+        // Normalize current_ai_score to a [0, 1] range based on defined min/max scores
+        double normalizedScore = (current_ai_score - MIN_SCORE_FOR_CAUTIOUS) / (MAX_SCORE_FOR_AGGRESSIVE - MIN_SCORE_FOR_CAUTIOUS);
+        normalizedScore = Math.max(0, Math.min(1, normalizedScore)); // Clamp to ensure it's within [0, 1]
+
+        // Map normalized score to the aggression factor range [MIN_AGGRESSION_FACTOR, MAX_AGGRESSION_FACTOR]
+        aiAggressionFactor = MIN_AGGRESSION_FACTOR + normalizedScore * (MAX_AGGRESSION_FACTOR - MIN_AGGRESSION_FACTOR);
+
+        // Update derived parameters using the aggression factor
+        current_asteroid_danger_distance = BASE_ASTEROID_DANGER_DISTANCE / aiAggressionFactor;
+        // Aggressive AI (high aggressionFactor) triggers shield with fewer threats (smaller current_shield_threat_count)
+        current_shield_threat_count = BASE_SHIELD_THREAT_COUNT / aiAggressionFactor; // Renamed
+        current_shoot_align_threshold = BASE_SHOOT_ALIGN_THRESHOLD / aiAggressionFactor;
+        current_min_thrust_distance_to_target = BASE_MIN_THRUST_DISTANCE_TO_TARGET / aiAggressionFactor;
+
+        // Ensure shield threat count is at least 1
+        current_shield_threat_count = Math.max(1, current_shield_threat_count);
+    }
+
+
+    /**
+     * Represents the actions the AI wants to take.
+     */
+    static class AIAction {
+        boolean thrust;
+        boolean turnLeft;
+        boolean turnRight;
+        boolean shoot;
+        boolean shield; // Renamed from hyperspace
+
+        AIAction(boolean thrust, boolean turnLeft, boolean turnRight, boolean shoot, boolean shield) { // Renamed
+            this.thrust = thrust;
+            this.turnLeft = turnLeft;
+            this.turnRight = turnRight;
+            this.shoot = shoot;
+            this.shield = shield; // Renamed
+        }
+    }
+
+    /**
+     * Determines the AI's next action based on the current game state.
+     * @param ship The AI's ship.
+     * @param asteroids List of current asteroids.
+     * @param bullets List of current bullets (for knowing bullet count).
+     * @param currentBullets Current bullets in magazine.
+     * @param reloading Is the ship reloading.
+     * @param shieldActive Is shield active. (Renamed)
+     * @param now Current time.
+     * @param lastShotTime Last time a shot was fired.
+     * @param shieldRefillTime When shield will be ready. (Renamed)
+     * @param shieldActiveDuration How long shield lasts. (Renamed)
+     * @param bulletCooldown How long between shots.
+     * @return An AIAction object with desired controls.
+     */
+    public AIAction determineAction(Ship ship, ArrayList<Asteroid> asteroids, ArrayList<Bullet> bullets,
+                                    int currentBullets, boolean reloading, boolean shieldActive, // Renamed shieldActive
+                                    long now, long lastShotTime, long shieldRefillTime, // Renamed shieldRefillTime
+                                    long shieldActiveDuration, // Renamed shieldActiveDuration
+                                    long bulletCooldown) {
+
+        boolean thrust = false;
+        boolean turnLeft = false;
+        boolean turnRight = false;
+        boolean shoot = false;
+        boolean shield = false; // Renamed
+
+        // --- Shield Logic (formerly Hyperspace) ---
+        // Count threatening asteroids based on dynamically adjusted danger distance
+        int threateningAsteroids = 0;
+        for (Asteroid asteroid : asteroids) {
+            double dist = Math.sqrt(Math.pow(ship.x - asteroid.x, 2) + Math.pow(ship.y - asteroid.y, 2));
+            if (dist < current_asteroid_danger_distance * 1.5) { // A bit wider threat radius for shield
+                threateningAsteroids++;
+            }
+        }
+        // If many threats and shield is available, use it (threshold is dynamic)
+        if (threateningAsteroids >= current_shield_threat_count && !shieldActive && now >= shieldRefillTime) { // Renamed
+            shield = true; // Renamed
+        }
+
+        if (ship.isInvincible()) { // If invincible (from shield or respawn), just thrust away from center
+            thrust = true;
+            // Simple evasion: move away from center if too close to edge
+            if (ship.x < screenWidth * 0.2) turnRight = true;
+            else if (ship.x > screenWidth * 0.8) turnLeft = true;
+            else if (ship.y < screenHeight * 0.2) turnRight = true;
+            else if (ship.y > screenHeight * 0.8) turnLeft = true;
+            return new AIAction(thrust, turnLeft, turnRight, false, shield); // Renamed
+        }
+
+        // --- Avoidance Logic (High Priority) ---
+        Asteroid closestThreat = null;
+        double minThreatDistance = Double.MAX_VALUE;
+
+        for (Asteroid asteroid : asteroids) {
+            double dist = Math.sqrt(Math.pow(ship.x - asteroid.x, 2) + Math.pow(ship.y - asteroid.y, 2));
+            // Use dynamically adjusted current_asteroid_danger_distance
+            if (dist < current_asteroid_danger_distance && dist < minThreatDistance) {
+                closestThreat = asteroid;
+                minThreatDistance = dist;
+            }
+        }
+
+        if (closestThreat != null) {
+            // Calculate angle to asteroid
+            double angleToAsteroid = Math.toDegrees(Math.atan2(closestThreat.y - ship.y, closestThreat.x - ship.x));
+            angleToAsteroid = (angleToAsteroid + 360) % 360;
+
+            // Calculate angle directly opposite to asteroid for evasion
+            double evasionAngle = (angleToAsteroid + 180) % 360;
+
+            // Calculate current heading of the ship
+            double shipHeading = (ship.angle + 360) % 360;
+
+            // Check if ship is pointing towards the asteroid or in its path
+            double angleDiff = Math.abs(shipHeading - angleToAsteroid);
+            if (angleDiff > 180) angleDiff = 360 - angleDiff; // Smallest angle difference
+
+            // If an asteroid is close and threatening, try to evade
+            if (minThreatDistance < current_asteroid_danger_distance && angleDiff < BASE_COLLISION_AVOID_ANGLE_THRESHOLD) { // Collision avoid threshold remains base
+                thrust = true; // Thrust away
+                // Turn away from the asteroid
+                double turnDiff = (evasionAngle - shipHeading + 360) % 360;
+                if (turnDiff > 180) { // If turning left is shorter
+                    turnLeft = true;
+                } else { // If turning right is shorter
+                    turnRight = true;
+                }
+                return new AIAction(thrust, turnLeft, turnRight, shoot, shield); // Renamed
+            }
+        }
+
+        // --- Offensive Logic (Medium Priority) ---
+        // Find closest asteroid to shoot at if no immediate threat
+        Asteroid targetAsteroid = null;
+        double minDistance = Double.MAX_VALUE;
+        for (Asteroid asteroid : asteroids) {
+            double dist = Math.sqrt(Math.pow(ship.x - asteroid.x, 2) + Math.pow(ship.y - asteroid.y, 2));
+            if (dist < minDistance) {
+                targetAsteroid = asteroid;
+                minDistance = dist;
+            }
+        }
+
+        if (targetAsteroid != null) {
+            // Calculate angle to target
+            double angleToTarget = Math.toDegrees(Math.atan2(targetAsteroid.y - ship.y, targetAsteroid.x - ship.x));
+            angleToTarget = (angleToTarget + 360) % 360;
+
+            double shipAngle = (ship.angle + 360) % 360; // Normalize ship angle to 0-360
+
+            double angleDifference = (angleToTarget - shipAngle + 360) % 360;
+
+            // Adjust ship angle
+            if (angleDifference > 180) { // Turn left is shorter
+                turnLeft = true;
+            } else { // Turn right is shorter
+                turnRight = true;
+            }
+
+            // Conditional thrusting:
+            // Thrust if not too close to the asteroid and not already moving very fast.
+            // This prevents the AI from continually thrusting and colliding with asteroids.
+            double currentSpeed = Math.sqrt(ship.dx * ship.dx + ship.dy * ship.dy);
+            // Use dynamically adjusted current_min_thrust_distance_to_target
+            if (minDistance > current_min_thrust_distance_to_target && currentSpeed < BASE_MAX_AI_APPROACH_SPEED) {
+                thrust = true;
+            } else if (minDistance <= current_min_thrust_distance_to_target && currentSpeed > 0.5) {
+                // If very close and still moving, stop thrusting to slow down using friction.
+                // This simulates "braking" by not accelerating.
+                thrust = false;
+            }
+
+
+            // Shoot if aligned and bullets available
+            // Use dynamically adjusted current_shoot_align_threshold
+            if (Math.abs(angleDifference) < current_shoot_align_threshold || Math.abs(angleDifference - 360) < current_shoot_align_threshold) {
+                if (currentBullets > 0 && !reloading && (now - lastShotTime > bulletCooldown)) {
+                    shoot = true;
+                }
+            }
+
+        } else {
+            // If no asteroids, always thrust to explore, but occasionally turn to find new ones
+            thrust = true; // Always thrust to keep moving and find new asteroids
+            if (random.nextInt(100) < 10) { // 10% chance to gently turn to explore
+                if (random.nextBoolean()) turnLeft = true;
+                else turnRight = true;
+            }
+        }
+
+        return new AIAction(thrust, turnLeft, turnRight, shoot, shield); // Renamed
+    }
+
+    /**
+     * Provides feedback to the AI about game events.
+     * This updates the AI's internal score, which influences its behavior in subsequent decisions.
+     * @param hitAsteroid True if an AI bullet hit an asteroid.
+     * @param hitByAsteroid True if the AI ship was hit by an asteroid.
+     */
+    public void receiveFeedback(boolean hitAsteroid, boolean hitByAsteroid) {
+        if (hitAsteroid) {
+            current_ai_score += 10; // Good feedback: +10
+        }
+        if (hitByAsteroid) {
+            current_ai_score -= 100; // Bad feedback: -100
+        }
+
+        // Update aggression parameters immediately after receiving feedback
+        updateAggressionParameters();
+
+        // Log to console the real-time feedback and AI state
+        System.out.printf("AI Log: Score: %.0f, Aggression: %.2f, Danger Dist: %.2f, Thrust Dist: %.2f, Shoot Threshold: %.2f, Shield Threat: %.0f\n",
+                          current_ai_score, aiAggressionFactor,
+                          current_asteroid_danger_distance,
+                          current_min_thrust_distance_to_target,
+                          current_shoot_align_threshold,
+                          current_shield_threat_count); // Renamed
+
+        // Optionally, you might want to save the `current_ai_score` or an average `aiAggressionFactor`
+        // to `aiStats.aggressionBias` at the end of the game for long-term learning.
+        // For now, it only affects the current game session.
+        aiStats.setAggressionBias(aiAggressionFactor); // Store current aggression as bias for next game
+    }
+}
+
+
+/**
+ * Dialog for displaying visual game statistics.
+ */
+class StatisticsDialog extends JDialog {
+    // The fields below are now accessed directly by non-static inner classes,
+    // so the "value not used" warning will resolve.
+    private final int bulletsFired;
+    private final int asteroidsDestroyed;
+    private final int totalShieldActivations1;
+    private final int totalShieldActivations2;
+    private final boolean isMLMode;
+    private final AIStats aiStats;
+    private final boolean isMultiplayer;
+
+    public StatisticsDialog(JFrame parent, int bulletsFired, int asteroidsDestroyed,
+                            int totalShieldActivations1, int totalShieldActivations2,
+                            boolean isMLMode, AIStats aiStats, boolean isMultiplayer) {
+        super(parent, "Game Statistics", true); // Modal dialog
+        this.bulletsFired = bulletsFired;
+        this.asteroidsDestroyed = asteroidsDestroyed;
+        this.totalShieldActivations1 = totalShieldActivations1;
+        this.totalShieldActivations2 = totalShieldActivations2;
+        this.isMLMode = isMLMode;
+        this.aiStats = aiStats;
+        this.isMultiplayer = isMultiplayer;
+
+        setSize(600, 500); // Fixed size for the dialog
+        setLocationRelativeTo(parent); // Center relative to the main game window
+        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+
+        // Main panel with a BoxLayout for vertical arrangement
+        JPanel mainPanel = new JPanel();
+        mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.Y_AXIS));
+        mainPanel.setBackground(Color.DARK_GRAY); // Dark background for contrast
+
+        // Title Label
+        JLabel titleLabel = new JLabel("Visual Game Statistics", SwingConstants.CENTER);
+        titleLabel.setFont(new Font("Arial", Font.BOLD, 28));
+        titleLabel.setForeground(Color.WHITE);
+        titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        mainPanel.add(Box.createVerticalStrut(20)); // Spacing
+        mainPanel.add(titleLabel);
+        mainPanel.add(Box.createVerticalStrut(20));
+
+        // Panel to hold the charts
+        JPanel chartsPanel = new JPanel();
+        chartsPanel.setLayout(new GridLayout(1, 2, 10, 0)); // 1 row, 2 columns, 10px horizontal gap
+        chartsPanel.setOpaque(false); // Make it transparent
+        chartsPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10)); // Padding
+
+        // Add Hit/Miss Pie Chart Panel
+        chartsPanel.add(new PieChartPanel("Bullet Accuracy")); // Removed parameters, now uses outer class fields
+
+        // Add Shield Activations Bar Chart Panel
+        chartsPanel.add(new BarChartPanel("Shield Activations")); // Removed parameters, now uses outer class fields
+
+        mainPanel.add(chartsPanel);
+
+        // Add AI Statistics (if ML mode)
+        if (this.isMLMode) { // Accessing outer class field directly
+            JPanel aiStatsPanel = new JPanel();
+            aiStatsPanel.setLayout(new BoxLayout(aiStatsPanel, BoxLayout.Y_AXIS));
+            aiStatsPanel.setOpaque(false);
+            aiStatsPanel.setBorder(BorderFactory.createEmptyBorder(10, 20, 10, 20));
+
+            JLabel aiTitle = new JLabel("AI Performance Metrics:", SwingConstants.LEFT);
+            aiTitle.setFont(new Font("Arial", Font.BOLD, 20));
+            aiTitle.setForeground(Color.WHITE);
+            aiTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+            aiStatsPanel.add(aiTitle);
+            aiStatsPanel.add(Box.createVerticalStrut(10));
+
+            JLabel aiVersionLabel = new JLabel("Jarvis Version: " + this.aiStats.getFormattedVersion(), SwingConstants.LEFT); // Accessing outer class field directly
+            aiVersionLabel.setFont(new Font("Arial", Font.PLAIN, 16));
+            aiVersionLabel.setForeground(Color.LIGHT_GRAY);
+            aiVersionLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            aiStatsPanel.add(aiVersionLabel);
+
+            JLabel aiGamesLabel = new JLabel("Total Games Played (AI): " + this.aiStats.totalGames, SwingConstants.LEFT); // Accessing outer class field directly
+            aiGamesLabel.setFont(new Font("Arial", Font.PLAIN, 16));
+            aiGamesLabel.setForeground(Color.LIGHT_GRAY);
+            aiGamesLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            aiStatsPanel.add(aiGamesLabel);
+
+            JLabel aiHighScoresLabel = new JLabel("AI High Score Count: " + this.aiStats.highScoreCount, SwingConstants.LEFT); // Accessing outer class field directly
+            aiHighScoresLabel.setFont(new Font("Arial", Font.PLAIN, 16));
+            aiHighScoresLabel.setForeground(Color.LIGHT_GRAY);
+            aiHighScoresLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            aiStatsPanel.add(aiHighScoresLabel);
+
+            JLabel aiAggressionLabel = new JLabel(String.format("AI Aggression Bias: %.2f", this.aiStats.getAggressionBias()), SwingConstants.LEFT); // Accessing outer class field directly
+            aiAggressionLabel.setFont(new Font("Arial", Font.PLAIN, 16));
+            aiAggressionLabel.setForeground(Color.LIGHT_GRAY);
+            aiAggressionLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            aiStatsPanel.add(aiAggressionLabel);
+
+
+            mainPanel.add(aiStatsPanel);
+        }
+
+        mainPanel.add(Box.createVerticalGlue()); // Push content up
+
+        // Close Button
+        JButton closeButton = new JButton("Close");
+        closeButton.setAlignmentX(Component.CENTER_ALIGNMENT);
+        closeButton.setFont(new Font("Arial", Font.BOLD, 18));
+        closeButton.setBackground(new Color(50, 50, 50)); // Darker button
+        closeButton.setForeground(Color.WHITE);
+        closeButton.setBorder(BorderFactory.createLineBorder(Color.GRAY, 2));
+        closeButton.setFocusPainted(false);
+        closeButton.addActionListener(e -> dispose());
+        mainPanel.add(closeButton);
+        mainPanel.add(Box.createVerticalStrut(20));
+
+        add(mainPanel);
+    }
+
+    /**
+     * Inner class for drawing a pie chart.
+     */
+    private class PieChartPanel extends JPanel { // Removed static
+        private final String title;
+
+        public PieChartPanel(String title) {
+            this.title = title;
+            setOpaque(false); // Make transparent for parent layout
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2d = (Graphics2D) g.create();
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+            int width = getWidth();
+            int height = getHeight();
+            int diameter = Math.min(width, height - 50) - 20; // Leave space for title/labels
+            int x = (width - diameter) / 2;
+            int y = (height - diameter) / 2 + 20; // Adjusted y to make space for title
+
+            // Draw title
+            g2d.setColor(Color.WHITE);
+            g2d.setFont(new Font("Arial", Font.BOLD, 18));
+            FontMetrics fm = g2d.getFontMetrics();
+            int titleX = (width - fm.stringWidth(title)) / 2;
+            g2d.drawString(title, titleX, 20);
+
+            // Access data from outer class fields
+            int totalValue = StatisticsDialog.this.bulletsFired;
+            int sliceValue = StatisticsDialog.this.asteroidsDestroyed;
+
+            if (totalValue == 0) {
+                g2d.setColor(Color.GRAY);
+                g2d.fillArc(x, y, diameter, diameter, 0, 360);
+                drawCenteredString(g2d, "N/A", new Font("Arial", Font.PLAIN, 20), width / 2, height / 2 + 20);
+                g2d.dispose();
+                return;
+            }
+
+            int otherValue = totalValue - sliceValue;
+            double slicePercentage = (double) sliceValue / totalValue;
+            double otherPercentage = (double) otherValue / totalValue;
+
+            int startAngle = 90; // Start at the top
+
+            // Draw slice 1 (e.g., Hits)
+            int arcAngle1 = (int) (slicePercentage * 360);
+            g2d.setColor(Color.GREEN); // Color for hits
+            g2d.fillArc(x, y, diameter, diameter, startAngle, arcAngle1);
+
+            // Draw slice 2 (e.g., Misses)
+            int arcAngle2 = 360 - arcAngle1; // Remaining angle
+            g2d.setColor(Color.RED); // Color for misses
+            g2d.fillArc(x, y, diameter, diameter, startAngle + arcAngle1, arcAngle2);
+
+            // Draw border
+            g2d.setColor(Color.WHITE);
+            g2d.drawOval(x, y, diameter, diameter);
+
+            // Add percentages text
+            g2d.setFont(new Font("Arial", Font.BOLD, 14));
+            // Calculate center of pie for text placement
+            int centerX = x + diameter / 2;
+            int centerY = y + diameter / 2;
+
+            // Text for Slice 1 (Hits)
+            if (sliceValue > 0) {
+                double textAngle1 = Math.toRadians(startAngle + arcAngle1 / 2.0);
+                int textX1 = (int) (centerX + diameter / 3.0 * Math.cos(textAngle1));
+                int textY1 = (int) (centerY + diameter / 3.0 * Math.sin(textAngle1));
+                String text1 = String.format("Hits: %.1f%%", slicePercentage * 100);
+                drawCenteredString(g2d, text1, g2d.getFont(), textX1, textY1);
+            }
+
+            // Text for Slice 2 (Misses)
+            if (otherValue > 0) {
+                double textAngle2 = Math.toRadians(startAngle + arcAngle1 + arcAngle2 / 2.0);
+                int textX2 = (int) (centerX + diameter / 3.0 * Math.cos(textAngle2));
+                int textY2 = (int) (centerY + diameter / 3.0 * Math.sin(textAngle2));
+                String text2 = String.format("Misses: %.1f%%", otherPercentage * 100);
+                drawCenteredString(g2d, text2, g2d.getFont(), textX2, textY2);
+            }
+            g2d.dispose();
+        }
+
+        private void drawCenteredString(Graphics2D g2d, String text, Font font, int x, int y) {
+            g2d.setFont(font);
+            FontMetrics metrics = g2d.getFontMetrics(font);
+            int textX = x - metrics.stringWidth(text) / 2;
+            int textY = y + metrics.getAscent() / 2;
+            g2d.drawString(text, textX, textY);
+        }
+    }
+
+    /**
+     * Inner class for drawing a bar chart for shield activations.
+     */
+    private class BarChartPanel extends JPanel { // Removed static
+        private final String title;
+
+        public BarChartPanel(String title) {
+            this.title = title;
+            setOpaque(false);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2d = (Graphics2D) g.create();
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+            int width = getWidth();
+            int height = getHeight();
+            int barWidth = 60;
+            int padding = 40; // Padding from left/right
+
+            // Draw title
+            g2d.setColor(Color.WHITE);
+            g2d.setFont(new Font("Arial", Font.BOLD, 18));
+            FontMetrics fm = g2d.getFontMetrics();
+            int titleX = (width - fm.stringWidth(title)) / 2;
+            g2d.drawString(title, titleX, 20);
+
+            // Draw x-axis (base line)
+            g2d.setColor(Color.LIGHT_GRAY);
+            int xAxisY = height - 50;
+            g2d.drawLine(padding, xAxisY, width - padding, xAxisY);
+
+            // Access data from outer class fields
+            int value1 = StatisticsDialog.this.totalShieldActivations1;
+            int value2 = StatisticsDialog.this.totalShieldActivations2;
+            boolean isMultiplayer = StatisticsDialog.this.isMultiplayer;
+            boolean isMLMode = StatisticsDialog.this.isMLMode; // Also get isMLMode for labeling
+
+            // Bar 1 (Player 1 / AI)
+            int bar1X = width / 2 - (isMultiplayer ? barWidth + 20 : barWidth / 2);
+            double scaleFactor = (double)(xAxisY - 40) / Math.max(value1, isMultiplayer ? value2 : 0); // Max height of bar area
+            if (value1 == 0 && (isMultiplayer ? value2 == 0 : true)) scaleFactor = 1.0; // Avoid division by zero if all values are 0
+
+            int bar1Height = (int) (value1 * scaleFactor);
+            if (bar1Height < 0) bar1Height = 0; // Clamp min height
+            g2d.setColor(Color.ORANGE);
+            g2d.fillRect(bar1X, xAxisY - bar1Height, barWidth, bar1Height);
+            g2d.setColor(Color.WHITE);
+            g2d.drawRect(bar1X, xAxisY - bar1Height, barWidth, bar1Height);
+            g2d.setFont(new Font("Arial", Font.PLAIN, 12));
+            String label1 = isMLMode ? "Jarvis" : "P1"; // Use isMLMode to label as Jarvis
+            drawCenteredString(g2d, label1, g2d.getFont(), bar1X + barWidth / 2, xAxisY + 15);
+            drawCenteredString(g2d, String.valueOf(value1), g2d.getFont(), bar1X + barWidth / 2, xAxisY - bar1Height - 5); // Value above bar
+
+            // Bar 2 (Player 2, if multiplayer)
+            if (isMultiplayer) {
+                int bar2X = width / 2 + 20;
+                int bar2Height = (int) (value2 * scaleFactor);
+                if (bar2Height < 0) bar2Height = 0; // Clamp min height
+                g2d.setColor(Color.MAGENTA);
+                g2d.fillRect(bar2X, xAxisY - bar2Height, barWidth, bar2Height);
+                g2d.setColor(Color.WHITE);
+                g2d.drawRect(bar2X, xAxisY - bar2Height, barWidth, bar2Height);
+                String label2 = "P2";
+                drawCenteredString(g2d, label2, g2d.getFont(), bar2X + barWidth / 2, xAxisY + 15);
+                drawCenteredString(g2d, String.valueOf(value2), g2d.getFont(), bar2X + barWidth / 2, xAxisY - bar2Height - 5); // Value above bar
+            }
+            g2d.dispose();
+        }
+
+        private void drawCenteredString(Graphics2D g2d, String text, Font font, int x, int intY) {
+            g2d.setFont(font);
+            FontMetrics metrics = g2d.getFontMetrics(font);
+            int textX = x - metrics.stringWidth(text) / 2;
+            int textY = intY + metrics.getAscent() / 2;
+            g2d.drawString(text, textX, textY);
+        }
     }
 }
