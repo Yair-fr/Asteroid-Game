@@ -13,13 +13,12 @@ import java.util.Map; // Import for Map
 import java.util.HashMap; // Import for HashMap
 import java.util.Random;
 import java.awt.geom.AffineTransform;
-
 public class AsteroidGame extends JPanel implements ActionListener, KeyListener, MouseListener {
     // Game constants - remain fixed for internal game logic dimensions
     public static final int WIDTH = 800;
     public static final int HEIGHT = 600;
     private static final int INITIAL_LIVES = 3;
-    private static final long BULLET_COOLDOWN = 200; // 0.2 seconds delay between shots, for single press to register
+    private static final long BULLET_COOLDOWN = 0; // No delay between shots
     private static final int MAX_BULLETS = 5; // Max bullets in magazine
     private static final long RELOAD_FULL_DURATION = 5000; // 5 seconds to reload when empty
     private static final long RELOAD_INCREMENTAL_DURATION = 2000; // 2 second per bullet for passive reload
@@ -352,63 +351,6 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 gameStartTime = System.currentTimeMillis(); // Record game start time
             });
 
-            // Multiplayer (Customize Names) button
-            drawButton(g2d, "Multiplayer (Customize Names)", WIDTH / 2, initialY + spacing, buttonWidth, buttonHeight,
-                    () -> {
-                        state = GameState.MULTIPLAYER_SETUP_NAMES;
-                    });
-
-            // New: Multiplayer (Quick Play) button - directly to QR display
-            drawButton(g2d, "Multiplayer (Quick Play)", WIDTH / 2, initialY + 2 * spacing, buttonWidth, buttonHeight,
-                    () -> {
-                        // Usernames remain default ("Player 1", "Player 2") unless previously changed
-                        player1ShipPattern = Ship.Pattern.ZEBRA; // Default for quick play
-                        player2ShipPattern = Ship.Pattern.DOTTED; // Default for quick play
-                        initGame(); // Make sure to init for quick play to apply patterns
-                        // Fewer initial asteroids for multiplayer quick play, especially on easy
-                        int initialAsteroidsMultiplayer = 5;
-                        if (initialDifficulty <= 2) { // For Easy/Very Easy
-                            initialAsteroidsMultiplayer = 3;
-                        } else if (initialDifficulty <= 5) { // For Normal
-                            initialAsteroidsMultiplayer = 4;
-                        }
-                        spawnAsteroids(initialAsteroidsMultiplayer);
-                        state = GameState.MULTIPLAYER_PLAYING; // Directly start playing
-                        gameStartTime = System.currentTimeMillis(); // Record game start time
-                    });
-
-            // ML Mode button
-            drawButton(g2d, "ML Mode (Jarvis)", WIDTH / 2, initialY + 3 * spacing, buttonWidth, buttonHeight, () -> {
-                String inputLives = JOptionPane.showInputDialog(this, "Enter Jarvis's initial lives:",
-                        String.valueOf(jarvisLivesInput));
-                if (inputLives != null && !inputLives.trim().isEmpty()) {
-                    try {
-                        int parsedLives = Integer.parseInt(inputLives.trim());
-                        if (parsedLives > 0) {
-                            jarvisLivesInput = parsedLives;
-                        } else {
-                            JOptionPane.showMessageDialog(this, "Lives must be a positive number. Using default.",
-                                    "Invalid Input", JOptionPane.WARNING_MESSAGE);
-                        }
-                    } catch (NumberFormatException ex) {
-                        JOptionPane.showMessageDialog(this, "Invalid number format for lives. Using default.",
-                                "Invalid Input", JOptionPane.WARNING_MESSAGE);
-                    }
-                }
-                initGame(); // Re-initialize for new game
-                lives1 = jarvisLivesInput; // AI starts with configurable lives
-                player1ShipPattern = Ship.Pattern.DOTTED; // AI uses a distinct pattern
-                spawnAsteroids(7); // Spawn 7 initial asteroids for ML mode (remains constant)
-                aiStats.totalGames++; // Increment total games for AI
-                saveAIStats();
-                state = GameState.ML_PLAYING;
-                gameStartTime = System.currentTimeMillis(); // Record game start time
-            });
-
-            // Button to select difficulty
-            drawButton(g2d, "Difficulty: " + initialDifficulty + " (Click to Change)", WIDTH / 2,
-                    initialY + 4 * spacing, buttonWidth, smallButtonHeight, this::showDifficultySelection);
-
             // Removed High Score display from Start screen as per request
             // g2d.setFont(new Font("Arial", Font.PLAIN, 24));
             // drawCenteredString(g2d, "High Scores:", new Font("Arial", Font.BOLD, 28),
@@ -426,176 +368,20 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             // new Font("Arial", Font.PLAIN, 20), scoreY + (i * 25));
             // }
 
-            // New button to view all high scores, repositioned slightly
-            drawButton(g2d, "View All Scores", WIDTH / 2, initialY + 5 * spacing, (int) (250 * 0.8), smallButtonHeight,
-                    this::showAllHighScores);
+            // Button to select difficulty
+            drawButton(g2d, "Difficulty: " + initialDifficulty + " (Click to Change)", WIDTH / 2,
+                    initialY + spacing, buttonWidth, smallButtonHeight, this::showDifficultySelection);
+
+            // Button to view high scores
+            drawButton(g2d, "View All Scores", WIDTH / 2, initialY + 2 * spacing, (int) (250 * 0.8),
+                    smallButtonHeight, this::showAllHighScores);
 
             g2d.setFont(new Font("Arial", Font.PLAIN, 16));
             drawCenteredString(g2d, "Yair FR©", new Font("Arial", Font.PLAIN, 16), HEIGHT - 20); // Copyright at bottom
                                                                                                  // middle
 
-        } else if (state == GameState.MULTIPLAYER_SETUP_NAMES) {
-            int currentY = 70; // Start Y for "Multiplayer Setup" title
-            drawCenteredString(g2d, "Multiplayer Setup", new Font("Arial", Font.BOLD, 48), currentY);
-
-            currentY += 80; // Space after title
-            // Player 1 Section
-            g2d.setFont(new Font("Arial", Font.PLAIN, 22)); // Slightly smaller font for labels
-            drawCenteredString(g2d, "Player 1 Name: " + userName1, new Font("Arial", Font.PLAIN, 24), currentY);
-
-            currentY += 40; // Space for button
-            drawButton(g2d, "Edit Player 1 Name", WIDTH / 2, currentY, 200, 40, () -> {
-                String input = JOptionPane.showInputDialog(this, "Enter Player 1 username:", userName1);
-                if (input != null && !input.trim().isEmpty()) {
-                    userName1 = input.trim();
-                }
-            });
-
-            currentY += 60; // Space after button
-            g2d.drawString("Player 1 Ship:", WIDTH / 2 - 100, currentY); // Left align this text
-
-            currentY += 40; // Space for buttons
-            drawButton(g2d, "Default", WIDTH / 2 - 150, currentY, 120, 40,
-                    () -> player1ShipPattern = Ship.Pattern.NONE);
-            drawButton(g2d, "Zebra", WIDTH / 2, currentY, 120, 40, () -> player1ShipPattern = Ship.Pattern.ZEBRA);
-            drawButton(g2d, "Dotted", WIDTH / 2 + 150, currentY, 120, 40,
-                    () -> player1ShipPattern = Ship.Pattern.DOTTED);
-
-            currentY += 40; // Space for small current pattern text
-            drawCenteredString(g2d, "Current: " + player1ShipPattern, new Font("Arial", Font.PLAIN, 16), currentY);
-
-            currentY += 60;
-            g2d.drawString("Player 1 Controls:", WIDTH / 2 - 100, currentY);
-
-            currentY += 40;
-            drawButton(g2d, "Shoot: " + KeyEvent.getKeyText(player1ShootKey), WIDTH / 2 - 100, currentY, 150, 40,
-                    () -> {
-                        String input = JOptionPane.showInputDialog(this, "Press key for Player 1 Shoot:");
-                        if (input != null && !input.isEmpty() && input.length() == 1) {
-                            player1ShootKey = input.toUpperCase().charAt(0);
-                        }
-                    });
-            drawButton(g2d, "Shield: " + KeyEvent.getKeyText(player1ShieldKey), WIDTH / 2 + 100, currentY, 150, 40,
-                    () -> { // Renamed
-                        String input = JOptionPane.showInputDialog(this, "Press key for Player 1 Shield:");
-                        if (input != null && !input.isEmpty() && input.length() == 1) {
-                            player1ShieldKey = input.toUpperCase().charAt(0);
-                        }
-                    });
-
-            // Player 2 Section
-            currentY += 70; // Larger space before Player 2 section
-            g2d.setFont(new Font("Arial", Font.PLAIN, 22)); // Slightly smaller font for labels
-            drawCenteredString(g2d, "Player 2 Name: " + userName2, new Font("Arial", Font.PLAIN, 24), currentY);
-
-            currentY += 40;
-            drawButton(g2d, "Edit Player 2 Name", WIDTH / 2, currentY, 200, 40, () -> {
-                String input = JOptionPane.showInputDialog(this, "Enter Player 2 username:", userName2);
-                if (input != null && !input.trim().isEmpty()) {
-                    userName2 = input.trim();
-                }
-            });
-
-            currentY += 60;
-            g2d.drawString("Player 2 Ship:", WIDTH / 2 - 100, currentY);
-
-            currentY += 40;
-            drawButton(g2d, "Default", WIDTH / 2 - 150, currentY, 120, 40,
-                    () -> player2ShipPattern = Ship.Pattern.NONE);
-            drawButton(g2d, "Zebra", WIDTH / 2, currentY, 120, 40, () -> player2ShipPattern = Ship.Pattern.ZEBRA);
-            drawButton(g2d, "Dotted", WIDTH / 2 + 150, currentY, 120, 40,
-                    () -> player2ShipPattern = Ship.Pattern.DOTTED);
-
-            currentY += 40;
-            drawCenteredString(g2d, "Current: " + player2ShipPattern, new Font("Arial", Font.PLAIN, 16), currentY);
-
-            currentY += 60;
-            g2d.drawString("Player 2 Controls:", WIDTH / 2 - 100, currentY);
-
-            currentY += 40;
-            drawButton(g2d, "Shoot: " + KeyEvent.getKeyText(player2ShootKey), WIDTH / 2 - 100, currentY, 150, 40,
-                    () -> {
-                        String input = JOptionPane.showInputDialog(this, "Press key for Player 2 Shoot:");
-                        if (input != null && !input.isEmpty() && input.length() == 1) {
-                            player2ShootKey = input.toUpperCase().charAt(0);
-                        }
-                    });
-            drawButton(g2d, "Shield: " + KeyEvent.getKeyText(player2ShieldKey), WIDTH / 2 + 100, currentY, 150, 40,
-                    () -> { // Renamed
-                        String input = JOptionPane.showInputDialog(this, "Press key for Player 2 Shield:");
-                        if (input != null && !input.isEmpty() && input.length() == 1) {
-                            player2ShieldKey = input.toUpperCase().charAt(0);
-                        }
-                    });
-
-            currentY = HEIGHT - 80; // Reposition bottom buttons to be above the copyright
-            drawButton(g2d, "Start Multiplayer Game", WIDTH / 2 + 100, currentY, 250, 60, () -> { // Adjusted position
-                initGame();
-                // Fewer initial asteroids for multiplayer, especially on easy
-                int initialAsteroidsMultiplayer = 5;
-                if (initialDifficulty <= 2) { // For Easy/Very Easy
-                    initialAsteroidsMultiplayer = 3;
-                } else if (initialDifficulty <= 5) { // For Normal
-                    initialAsteroidsMultiplayer = 4;
-                }
-                spawnAsteroids(initialAsteroidsMultiplayer);
-                state = GameState.MULTIPLAYER_PLAYING;
-                gameStartTime = System.currentTimeMillis(); // Record game start time
-            });
-            drawButton(g2d, "Back to Main Menu", WIDTH / 2 - 150, currentY, 200, 40, () -> state = GameState.START); // Adjusted
-                                                                                                                     // position
-
-        } else if (state == GameState.MULTIPLAYER_DISPLAY_QRS) {
-            drawCenteredString(g2d, "Multiplayer Controllers (Local Demo)", new Font("Arial", Font.BOLD, 40),
-                    HEIGHT / 8);
-            g2d.setFont(new Font("Arial", Font.PLAIN, 18));
-            drawCenteredString(g2d, "In a real game, you would scan these QR codes on your phones.",
-                    new Font("Arial", Font.PLAIN, 18), HEIGHT / 8 + 40);
-            drawCenteredString(g2d, "For this demo, players use the same keyboard with different keys:",
-                    new Font("Arial", Font.PLAIN, 18), HEIGHT / 8 + 65);
-
-            // Player 1 QR Code and Controls
-            g2d.setColor(Color.WHITE);
-            g2d.setFont(new Font("Arial", Font.BOLD, 24));
-            g2d.drawString(userName1 + "'s Controller", WIDTH / 4 - 100, HEIGHT / 3 + 20);
-            drawQRCodePlaceholder(g2d, WIDTH / 4 - 50, HEIGHT / 3 + 50, 100, "Player 1 URL");
-            g2d.setFont(new Font("Arial", Font.PLAIN, 18));
-            g2d.drawString("Controls: ARROW Keys", WIDTH / 4 - 100, HEIGHT / 3 + 170);
-            g2d.drawString("Shoot: " + KeyEvent.getKeyText(player1ShootKey) + ", Shield: "
-                    + KeyEvent.getKeyText(player1ShieldKey), WIDTH / 4 - 100, HEIGHT / 3 + 195); // Renamed
-
-            // Player 2 QR Code and Controls
-            g2d.setColor(Color.WHITE);
-            g2d.setFont(new Font("Arial", Font.BOLD, 24));
-            g2d.drawString(userName2 + "'s Controller", 3 * WIDTH / 4 - 100, HEIGHT / 3 + 20);
-            drawQRCodePlaceholder(g2d, 3 * WIDTH / 4 - 50, HEIGHT / 3 + 50, 100, "Player 2 URL");
-            g2d.setFont(new Font("Arial", Font.PLAIN, 18));
-            g2d.drawString("Controls: W, A, D", 3 * WIDTH / 4 - 100, HEIGHT / 3 + 170);
-            g2d.drawString("Shoot: " + KeyEvent.getKeyText(player2ShootKey) + ", Shield: "
-                    + KeyEvent.getKeyText(player2ShieldKey), 3 * WIDTH / 4 - 100, HEIGHT / 3 + 195); // Renamed
-
-            drawButton(g2d, "Start Multiplayer Game", WIDTH / 2, HEIGHT - 100, 300, 60, () -> {
-                initGame(); // Initialize common game elements for a new game session
-                // Fewer initial asteroids for multiplayer quick play, especially on easy
-                int initialAsteroidsMultiplayer = 5;
-                if (initialDifficulty <= 2) { // For Easy/Very Easy
-                    initialAsteroidsMultiplayer = 3;
-                } else if (initialDifficulty <= 5) { // For Normal
-                    initialAsteroidsMultiplayer = 4;
-                }
-                spawnAsteroids(initialAsteroidsMultiplayer);
-                state = GameState.MULTIPLAYER_PLAYING;
-                gameStartTime = System.currentTimeMillis(); // Record game start time
-            });
-            drawButton(g2d, "Back to Setup", WIDTH / 2, HEIGHT - 30, 200, 40,
-                    () -> state = GameState.MULTIPLAYER_SETUP_NAMES);
-
-        } else if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING
-                || state == GameState.ML_PLAYING) {
+        } else if (state == GameState.PLAYING_SINGLE || state == GameState.ML_PLAYING) {
             ship1.draw(g2d);
-            if (state == GameState.MULTIPLAYER_PLAYING) {
-                ship2.draw(g2d);
-            }
 
             for (Bullet b : bullets)
                 b.draw(g2d);
@@ -649,9 +435,6 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             }
 
             // UI elements for Player 2 (top right) in multiplayer mode
-            if (state == GameState.MULTIPLAYER_PLAYING) {
-                g2d.drawString("Lives (" + userName2 + "): " + lives2, WIDTH - 150, 40);
-            }
 
             // Positioned at bottom middle for both players
             int uiBottomY = HEIGHT - 20; // Slightly above bottom edge
@@ -661,11 +444,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             int barOffset = 30; // Distance from bottom for bars
 
             int player1SectionWidth = barWidth * 2 + 50; // Width for shield bar + bullet bar + gap
-            int player2SectionWidth = barWidth * 2 + 50;
             int totalUIWidth = player1SectionWidth;
-            if (state == GameState.MULTIPLAYER_PLAYING) {
-                totalUIWidth += player2SectionWidth + 80; // Add space between player sections
-            }
             int startX = (WIDTH - totalUIWidth) / 2;
 
             int shield1X = startX; // Renamed
@@ -740,75 +519,6 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             }
             // Removed the incremental reload message (purple message) for Player 1
 
-            // UI for Player 2 in multiplayer mode
-            if (state == GameState.MULTIPLAYER_PLAYING) {
-                int shield2X = bullets1X + barWidth + 80; // Adjusted spacing between player sections (Renamed)
-                int bullets2X = shield2X + barWidth + 50;
-
-                // Draw Shield bar for Player 2 (Renamed)
-                g2d.setColor(Color.WHITE);
-                g2d.drawString("Shield:", shield2X, uiBottomY - labelOffset); // Removed player name
-                double shieldProgress2; // Renamed
-                if (shieldActive2) { // Renamed
-                    shieldProgress2 = 1.0
-                            - (double) (System.currentTimeMillis() - shieldActivationTime2) / SHIELD_ACTIVE_DURATION; // Renamed
-                } else {
-                    long timeToRefill = shieldRefillTime2 - System.currentTimeMillis(); // Renamed
-                    if (timeToRefill <= 0) {
-                        shieldProgress2 = 1.0;
-                    } else {
-                        shieldProgress2 = 1.0 - (double) timeToRefill / SHIELD_RECHARGE_DURATION; // Renamed
-                    }
-                }
-                if (shieldProgress2 < 0)
-                    shieldProgress2 = 0;
-                if (shieldProgress2 > 1)
-                    shieldProgress2 = 1;
-
-                g2d.setColor(Color.DARK_GRAY);
-                g2d.fillRect(shield2X, uiBottomY - barOffset, barWidth, barHeight);
-
-                g2d.setColor(Color.CYAN);
-                g2d.fillRect(shield2X, uiBottomY - barOffset, (int) (barWidth * shieldProgress2), barHeight);
-                g2d.setColor(Color.YELLOW);
-                g2d.drawRect(shield2X, uiBottomY - barOffset, barWidth, barHeight);
-
-                // Draw refuel message if recharging for Player 2
-                if (!shieldActive2 && System.currentTimeMillis() < shieldRefillTime2) { // Renamed
-                    g2d.setColor(Color.ORANGE);
-                    String msg = "Recharging...";
-                    FontMetrics fm = g2d.getFontMetrics();
-                    int msgX = shield2X + (barWidth - fm.stringWidth(msg)) / 2;
-                    int msgY = uiBottomY - barOffset + barHeight / 2 + fm.getAscent() / 2;
-                    g2d.drawString(msg, msgX, msgY);
-                }
-
-                // Draw Bullets display for Player 2
-                g2d.setColor(Color.WHITE);
-                g2d.drawString("Bullets: " + currentBullets2 + "/" + MAX_BULLETS, bullets2X, uiBottomY - labelOffset); // Removed
-                                                                                                                       // player
-                                                                                                                       // name
-
-                g2d.setColor(Color.DARK_GRAY);
-                g2d.fillRect(bullets2X, uiBottomY - barOffset, barWidth, barHeight);
-
-                double bulletReloadProgress2 = (double) currentBullets2 / MAX_BULLETS;
-                g2d.setColor(Color.GREEN.darker());
-                g2d.fillRect(bullets2X, uiBottomY - barOffset, (int) (barWidth * bulletReloadProgress2), barHeight);
-                g2d.setColor(Color.YELLOW);
-                g2d.drawRect(bullets2X, uiBottomY - barOffset, barWidth, barHeight);
-
-                // Draw reload message if reloading for Player 2
-                if (reloading2) {
-                    g2d.setColor(Color.RED);
-                    String msg = "Reloading (Full)...";
-                    FontMetrics fm = g2d.getFontMetrics();
-                    int msgX = bullets2X + (barWidth - fm.stringWidth(msg)) / 2;
-                    int msgY = uiBottomY - barOffset + barHeight / 2 + fm.getAscent() / 2;
-                    g2d.drawString(msg, msgX, msgY);
-                }
-                // Removed the incremental reload message (purple message) for Player 2
-            }
 
         } else if (state == GameState.GAME_OVER) {
             drawCenteredString(g2d, "GAME OVER", new Font("Arial", Font.BOLD, 48), HEIGHT / 3);
@@ -831,37 +541,16 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 }
             }
 
-            // Adjusted button positions to avoid overlay on Game Over screen
-            int buttonRow1Y = HEIGHT - 180; // First row of buttons
-            int buttonRow2Y = HEIGHT - 120; // Second row of buttons
+            // Simplified buttons for a cleaner layout
+            int buttonY = HEIGHT - 150;
             int buttonWidth = 250;
             int buttonHeight = 40;
-            int buttonSpacing = 20; // Horizontal spacing between buttons
 
-            // Row 1 buttons
-            drawButton(g2d, "View All Scores", WIDTH / 2 - (buttonWidth + buttonSpacing), buttonRow1Y, buttonWidth,
-                    buttonHeight, this::showAllHighScores);
-            drawButton(g2d, "Game Statistics", WIDTH / 2, buttonRow1Y, buttonWidth, buttonHeight,
-                    this::showGameStatistics);
-            drawButton(g2d, "Back to Main Menu", WIDTH / 2 + (buttonWidth + buttonSpacing), buttonRow1Y, buttonWidth,
-                    buttonHeight, () -> {
-                        initGame(); // Re-initialize state, but don't spawn asteroids
-                        state = GameState.START;
-                    });
-
-            // Row 2 button
-            drawButton(g2d, "View Visual Statistics", WIDTH / 2, buttonRow2Y, buttonWidth, buttonHeight, () -> {
-                // Pass relevant statistics to the new dialog
-                StatisticsDialog statsDialog = new StatisticsDialog(
-                        (JFrame) SwingUtilities.getWindowAncestor(this), // Parent frame
-                        bulletsFired,
-                        asteroidsDestroyed,
-                        totalShieldActivations1,
-                        totalShieldActivations2,
-                        lastPlayedState == GameState.ML_PLAYING, // Indicates if AI was playing
-                        aiStats,
-                        state == GameState.MULTIPLAYER_PLAYING);
-                statsDialog.setVisible(true);
+            drawButton(g2d, "View All Scores", WIDTH / 2 - 130, buttonY, buttonWidth, buttonHeight,
+                    this::showAllHighScores);
+            drawButton(g2d, "Back to Main Menu", WIDTH / 2 + 130, buttonY, buttonWidth, buttonHeight, () -> {
+                initGame();
+                state = GameState.START;
             });
 
             g2d.setFont(new Font("Arial", Font.PLAIN, 24));
@@ -957,38 +646,6 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         buttonActions.put(new Rectangle(buttonX, buttonY, buttonSize, buttonSize), () -> System.exit(0));
     }
 
-    /**
-     * Draws a placeholder for a QR code.
-     * 
-     * @param g2d  Graphics2D context.
-     * @param x    X coordinate.
-     * @param y    Y coordinate.
-     * @param size Size of the QR code square.
-     * @param text Optional text to display inside.
-     */
-    private void drawQRCodePlaceholder(Graphics2D g2d, int x, int y, int size, String text) {
-        g2d.setColor(Color.WHITE);
-        g2d.fillRect(x, y, size, size);
-        g2d.setColor(Color.BLACK);
-        g2d.drawRect(x, y, size, size);
-
-        // Draw some random patterns to simulate QR code complexity
-        for (int i = 0; i < 5; i++) {
-            g2d.fillRect(x + random.nextInt(size - 10), y + random.nextInt(size - 10), 5 + random.nextInt(5),
-                    5 + random.nextInt(5));
-        }
-
-        // Add text "Scan Me!" or placeholder URL
-        g2d.setColor(Color.RED); // Make text stand out
-        g2d.setFont(new Font("Arial", Font.BOLD, 14));
-        FontMetrics metrics = g2d.getFontMetrics();
-        int textX = x + (size - metrics.stringWidth("Scan Me!")) / 2;
-        int textY = y + (size / 2) + (metrics.getAscent() / 2);
-        g2d.drawString("Scan Me!", textX, textY);
-        if (text != null && !text.isEmpty()) {
-            g2d.drawString(text, x + (size - metrics.stringWidth(text)) / 2, y + size - 5);
-        }
-    }
 
     /**
      * Displays a JOptionPane for the user to select a difficulty level.
@@ -1037,8 +694,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     public void actionPerformed(ActionEvent e) {
         long now = System.currentTimeMillis();
 
-        if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING
-                || state == GameState.ML_PLAYING) {
+        if (state == GameState.PLAYING_SINGLE || state == GameState.ML_PLAYING) {
             // --- Player 1 (Human or AI) Logic ---
             // Process AI input for Player 1 if in ML_PLAYING state
             if (state == GameState.ML_PLAYING) {
@@ -1084,7 +740,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             // Shooting logic for Player 1 (triggered by single press, applies to both Human
             // and AI)
             if (shootRequested1) {
-                if (!reloading1 && currentBullets1 > 0 && (now - lastShotTime1 > BULLET_COOLDOWN)) {
+                if (!reloading1 && currentBullets1 > 0) {
                     bullets.add(new Bullet(ship1));
                     currentBullets1--;
                     bulletsFired++; // Increment bullets fired
@@ -1121,72 +777,12 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             // Pass ship speed reduction factor if shield is active
             ship1.update(up1, left1, right1, shieldActive1, SHIP_SPEED_REDUCTION_FACTOR, WIDTH, HEIGHT);
 
-            // --- Player 2 Logic (if multiplayer) ---
-            if (state == GameState.MULTIPLAYER_PLAYING) {
-                // Passive reload for Player 2
-                if (!reloading2 && currentBullets2 < MAX_BULLETS) {
-                    if (now - lastReloadTickTime2 >= RELOAD_INCREMENTAL_DURATION) {
-                        currentBullets2++;
-                        lastReloadTickTime2 = now;
-                    }
-                }
-
-                // Full reload (when empty) for Player 2
-                if (reloading2) {
-                    if (now - reloadStartTime2 > RELOAD_FULL_DURATION) {
-                        reloading2 = false;
-                        currentBullets2 = MAX_BULLETS;
-                        lastReloadTickTime2 = now;
-                    }
-                }
-
-                // Shooting logic for Player 2 (triggered by single press)
-                if (shootRequested2) {
-                    if (!reloading2 && currentBullets2 > 0 && (now - lastShotTime2 > BULLET_COOLDOWN)) {
-                        bullets.add(new Bullet(ship2));
-                        currentBullets2--;
-                        bulletsFired++; // Increment bullets fired
-                        lastShotTime2 = now;
-                        if (currentBullets2 == 0) {
-                            reloading2 = true;
-                            reloadStartTime2 = now;
-                        }
-                    }
-                    shootRequested2 = false; // Consume the request
-                }
-
-                // Shield logic for Player 2 (formerly Hyperspace)
-                if (shieldRequested2) { // Renamed hyperspaceRequested2
-                    if (!shieldActive2 && now >= shieldRefillTime2) { // Renamed hyperSpeedActive2, hyperFuelRefillTime2
-                        shieldActive2 = true; // Renamed hyperSpeedActive2
-                        shieldActivationTime2 = now; // Renamed hyperspaceActivationTime2
-                        ship2.setInvincible();
-                        totalShieldActivations2++; // Increment shield activations (Renamed)
-                    }
-                    shieldRequested2 = false; // Consume the request (Renamed)
-                }
-
-                // Deactivate shield after duration for Player 2 (formerly Hyperspace)
-                if (shieldActive2 && now - shieldActivationTime2 > SHIELD_ACTIVE_DURATION) { // Renamed
-                                                                                             // hyperSpeedActive2,
-                                                                                             // hyperspaceActivationTime1,
-                                                                                             // HYPER_ACTIVE_DURATION
-                    shieldActive2 = false; // Renamed hyperSpeedActive2
-                    shieldRefillTime2 = now + SHIELD_RECHARGE_DURATION; // Renamed hyperFuelRefillTime2,
-                                                                        // HYPER_RECHARGE_DURATION
-                    totalShieldDuration2 += SHIELD_ACTIVE_DURATION; // Add duration to total (Renamed)
-                }
-
-                // Update ship 2
-                // Pass ship speed reduction factor if shield is active
-                ship2.update(up2, left2, right2, shieldActive2, SHIP_SPEED_REDUCTION_FACTOR, WIDTH, HEIGHT);
-            }
 
             bullets.forEach(b -> b.update(WIDTH, HEIGHT));
 
             // Determine asteroid speed multiplier based on shield active status OR Freeze
             double currentAsteroidSpeedMultiplier = 1.0; // Default to normal speed
-            if (shieldActive1 || shieldActive2) { // Check both players for slowdown effect
+            if (shieldActive1) { // Slow down asteroids when shield is active
                 currentAsteroidSpeedMultiplier = ASTEROID_SLOWDOWN_MULTIPLIER;
             }
             if (now < freezeEndTime) { // If Freeze is active, override speed to 0 (or very close to 0)
@@ -1211,10 +807,6 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
 
                 if (powerUp.getBounds().intersects(ship1.getBounds())) {
                     applyPowerUpEffect(powerUp.type, ship1); // Apply effect for Player 1
-                    powerUpIterator.remove(); // Remove power-up after collection
-                } else if (state == GameState.MULTIPLAYER_PLAYING
-                        && powerUp.getBounds().intersects(ship2.getBounds())) {
-                    applyPowerUpEffect(powerUp.type, ship2); // Apply effect for Player 2
                     powerUpIterator.remove(); // Remove power-up after collection
                 }
             }
@@ -1250,8 +842,6 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
 
             if (state == GameState.PLAYING_SINGLE) {
                 checkCollisionsSinglePlayer();
-            } else if (state == GameState.MULTIPLAYER_PLAYING) {
-                checkCollisionsMultiplayer();
             } else { // ML_PLAYING
                 checkCollisionsMLPlayer();
             }
@@ -1303,12 +893,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             }
 
             // Check for game over (multiplayer condition)
-            if (state == GameState.MULTIPLAYER_PLAYING && lives1 <= 0 && lives2 <= 0) {
-                gameEndTime = now; // Record game end time
-                lastPlayedState = state; // Store current state before GAME_OVER
-                state = GameState.GAME_OVER;
-                saveOrUpdateHighScore(userName1, score, initialDifficulty, false, null); // Human player
-            } else if (state == GameState.PLAYING_SINGLE && lives1 <= 0) {
+            if (state == GameState.PLAYING_SINGLE && lives1 <= 0) {
                 gameEndTime = now; // Record game end time
                 lastPlayedState = state; // Store current state before GAME_OVER
                 state = GameState.GAME_OVER;
@@ -1337,8 +922,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                                                                                                                 // Jarvis
             }
 
-        } else if (state == GameState.START || state == GameState.MULTIPLAYER_SETUP_NAMES
-                || state == GameState.MULTIPLAYER_DISPLAY_QRS) {
+        } else if (state == GameState.START) {
             // Update stars movement only on start screen and setup screens
             for (Star star : stars) {
                 star.update();
@@ -1385,8 +969,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     public void keyPressed(KeyEvent e) {
         int keyCode = e.getKeyCode();
         // Key presses for both human players and AI in ML_PLAYING state
-        if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING
-                || state == GameState.ML_PLAYING) {
+        if (state == GameState.PLAYING_SINGLE || state == GameState.ML_PLAYING) {
             // Player 1 Controls (Human or AI in ML_PLAYING)
             switch (keyCode) {
                 case KeyEvent.VK_UP -> up1 = true;
@@ -1408,28 +991,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 }
             }
 
-            // Player 2 Controls (only in multiplayer)
-            if (state == GameState.MULTIPLAYER_PLAYING) {
-                switch (keyCode) {
-                    case KeyEvent.VK_W -> up2 = true;
-                    case KeyEvent.VK_A -> left2 = true;
-                    case KeyEvent.VK_D -> right2 = true;
-                }
-                // Handle shoot key press for single shot
-                if (keyCode == player2ShootKey) {
-                    if (!player2ShootKeyHeld) {
-                        shootRequested2 = true;
-                        player2ShootKeyHeld = true;
-                    }
-                }
-                // Handle shield key press for single activation
-                if (keyCode == player2ShieldKey) { // Renamed player2HyperspaceKey
-                    if (!player2ShieldKeyHeld) { // Renamed player2HyperspaceKeyHeld
-                        shieldRequested2 = true; // Renamed
-                        player2ShieldKeyHeld = true; // Renamed
-                    }
-                }
-            }
+            // Multiplayer controls removed
         }
 
         // State transitions
@@ -1441,16 +1003,6 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                     lives1 = jarvisLivesInput; // Set AI lives back to configured value on restart
                     spawnAsteroids(7); // Restart ML mode with appropriate asteroids
                     state = GameState.ML_PLAYING;
-                } else if (lastPlayedState == GameState.MULTIPLAYER_PLAYING) {
-                    // Fewer initial asteroids for multiplayer quick play, especially on easy
-                    int initialAsteroidsMultiplayer = 5;
-                    if (initialDifficulty <= 2) { // For Easy/Very Easy
-                        initialAsteroidsMultiplayer = 3;
-                    } else if (initialDifficulty <= 5) { // For Normal
-                        initialAsteroidsMultiplayer = 4;
-                    }
-                    spawnAsteroids(initialAsteroidsMultiplayer); // Restart multiplayer with appropriate asteroids
-                    state = GameState.MULTIPLAYER_PLAYING;
                 } else { // Default to single player if lastPlayedState is unknown or single player
                     // Fewer initial asteroids for single player, especially on easy
                     int initialAsteroidsSinglePlayer = 3;
@@ -1476,8 +1028,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     public void keyReleased(KeyEvent e) {
         int keyCode = e.getKeyCode();
         // Key releases for both human players and AI in ML_PLAYING state
-        if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING
-                || state == GameState.ML_PLAYING) {
+        if (state == GameState.PLAYING_SINGLE || state == GameState.ML_PLAYING) {
             // Player 1 Controls
             switch (keyCode) {
                 case KeyEvent.VK_UP -> up1 = false;
@@ -1492,21 +1043,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 player1ShieldKeyHeld = false; // Renamed player1HyperspaceKeyHeld
             }
 
-            // Player 2 Controls
-            if (state == GameState.MULTIPLAYER_PLAYING) {
-                switch (keyCode) {
-                    case KeyEvent.VK_W -> up2 = false;
-                    case KeyEvent.VK_A -> left2 = false;
-                    case KeyEvent.VK_D -> right2 = false;
-                }
-                // Reset key held flags on release
-                if (keyCode == player2ShootKey) {
-                    player2ShootKeyHeld = false;
-                }
-                if (keyCode == player2ShieldKey) { // Renamed player2HyperspaceKey
-                    player2ShieldKeyHeld = false; // Renamed player2HyperspaceKeyHeld
-                }
-            }
+            // Multiplayer controls removed
         }
     }
 
@@ -2007,13 +1544,6 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         sb.append(String.format("Player 1 Total Shield Duration: %.2f seconds\n", totalShieldDuration1 / 1000.0)); // Renamed
         sb.append(String.format("Player 1 Estimated Shield Cost: %d units\n", totalShieldCost1)); // Renamed
 
-        // Shield Activations for Player 2 (if multiplayer) (Renamed)
-        if (lastPlayedState == GameState.MULTIPLAYER_PLAYING) {
-            long totalShieldCost2 = (long) totalShieldActivations2 * SHIELD_COST_PER_ACTIVATION; // Renamed
-            sb.append(String.format("Player 2 Shield Activations: %d\n", totalShieldActivations2)); // Renamed
-            sb.append(String.format("Player 2 Total Shield Duration: %.2f seconds\n", totalShieldDuration2 / 1000.0)); // Renamed
-            sb.append(String.format("Player 2 Estimated Shield Cost: %d units\n", totalShieldCost2)); // Renamed
-        }
 
         JTextArea textArea = new JTextArea(sb.toString());
         textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
@@ -2028,8 +1558,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
      * Enum to define the different states of the game.
      */
     enum GameState {
-        START, PLAYING_SINGLE, MULTIPLAYER_SETUP_NAMES, MULTIPLAYER_DISPLAY_QRS, MULTIPLAYER_PLAYING, ML_PLAYING,
-        GAME_OVER
+        START, PLAYING_SINGLE, ML_PLAYING, GAME_OVER
     }
 
     // MouseListener implementations for button clicks
