@@ -3,6 +3,7 @@
 Welcome to the **Asteroid Game**, a classic arcade-style space shooter developed in Java Swing! Navigate your spaceship through perilous asteroid fields, blast obstacles, collect power-ups, and aim for the high score.
 
 This enhanced version introduces:
+- Multiplayer mode
 - Ship customization
 - Advanced power-ups
 - Dynamic difficulty and performance stats
@@ -13,6 +14,11 @@ This enhanced version introduces:
 
 ### 🔹 Single-Player Mode
 - Face continuous waves of asteroids with increasing difficulty.
+
+### 🔹 Multiplayer Mode (Local)
+- **Customizable Names & Controls**: Personalize player names and key bindings.
+- **Co-op Gameplay**: Survive together with a friend.
+- **Ship-to-Ship Interaction**: Push each other without damage.
 
 
 ### ✨ Power-Ups
@@ -52,9 +58,9 @@ This enhanced version introduces:
 ```bash
 javac AsteroidGame.java
 ```
-
 ### Playing
 - Launch `AsteroidGame` and use the **Difficulty** button on the main menu to choose a level before starting.
 
 ### Distribution
 This project is written for Java Swing, so it cannot be directly packaged as an Android `.apk` without a full port to Android APIs.
+
