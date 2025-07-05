@@ -30,6 +30,7 @@ This enhanced version introduces:
 - Limited magazine with reload system:
   - Full reload after empty.
   - Passive incremental reloads.
+- No cooldown between shots—fire as fast as you press the shoot key.
 
 ### 📈 High Scores & Stats
 - Saves best scores with difficulty settings.
