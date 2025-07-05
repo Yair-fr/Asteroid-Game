@@ -3,11 +3,10 @@
 Welcome to the **Asteroid Game**, a classic arcade-style space shooter developed in Java Swing! Navigate your spaceship through perilous asteroid fields, blast obstacles, collect power-ups, and aim for the high score.
 
 This enhanced version introduces:
-- Multiplayer mode  
-- AI-controlled opponent ("Jarvis")  
-- Ship customization  
-- Advanced power-ups  
-- Dynamic difficulty and performance stats  
+- Multiplayer mode
+- Ship customization
+- Advanced power-ups
+- Dynamic difficulty and performance stats
 
 ---
 
@@ -18,14 +17,9 @@ This enhanced version introduces:
 
 ### 🔹 Multiplayer Mode (Local)
 - **Customizable Names & Controls**: Personalize player names and key bindings.
-- **Quick Play**: Jump in with default settings.
 - **Co-op Gameplay**: Survive together with a friend.
 - **Ship-to-Ship Interaction**: Push each other without damage.
 
-### 🤖 ML Mode (Jarvis AI)
-- Battle "Jarvis", a learning AI ship.
-- Configurable AI lives.
-- Adaptive behavior that evolves with gameplay.
 
 ### ✨ Power-Ups
 - **Freeze (❄️)**: Appears every 100 points. Freezes all asteroids for 2 seconds.
@@ -36,9 +30,10 @@ This enhanced version introduces:
 - Limited magazine with reload system:
   - Full reload after empty.
   - Passive incremental reloads.
+- No cooldown between shots—fire as fast as you press the shoot key.
 
 ### 📈 High Scores & Stats
-- Saves best scores with difficulty and AI details.
+- Saves best scores with difficulty settings.
 - Detailed post-game statistics:
   - Time played
   - Asteroids destroyed
@@ -61,5 +56,5 @@ This enhanced version introduces:
 
 ### Compile
 ```bash
-javac AsteroidGame.java Ship.java Bullet.java Asteroid.java PopEffect.java \
-HighScoreEntry.java AIStats.java ShipAI.java StatisticsDialog.java PowerUp.java
+javac AsteroidGame.java
+```
