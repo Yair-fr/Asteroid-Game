@@ -488,8 +488,13 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 state = GameState.MULTIPLAYER_PLAYING;
                 gameStartTime = System.currentTimeMillis(); // Record game start time
             });
+
             currentY += 80; // Gap below start button
             drawButton(g2d, "Back to Main Menu", WIDTH / 2, currentY, 200, 40, () -> state = GameState.START);
+
+            drawButton(g2d, "Back to Main Menu", WIDTH / 2 - 150, currentY, 200, 40, () -> state = GameState.START); // Adjusted
+                                                                                                                     // position
+
 
         } else if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING
                 || state == GameState.ML_PLAYING) {
