@@ -13,13 +13,12 @@ import java.util.Map; // Import for Map
 import java.util.HashMap; // Import for HashMap
 import java.util.Random;
 import java.awt.geom.AffineTransform;
-
 public class AsteroidGame extends JPanel implements ActionListener, KeyListener, MouseListener {
     // Game constants - remain fixed for internal game logic dimensions
     public static final int WIDTH = 800;
     public static final int HEIGHT = 600;
     private static final int INITIAL_LIVES = 3;
-    private static final long BULLET_COOLDOWN = 200; // 0.2 seconds delay between shots, for single press to register
+    private static final long BULLET_COOLDOWN = 0; // No delay between shots
     private static final int MAX_BULLETS = 5; // Max bullets in magazine
     private static final long RELOAD_FULL_DURATION = 5000; // 5 seconds to reload when empty
     private static final long RELOAD_INCREMENTAL_DURATION = 2000; // 2 second per bullet for passive reload
@@ -475,8 +474,8 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                         }
                     });
 
-            currentY = HEIGHT - 80; // Reposition bottom buttons to be above the copyright
-            drawButton(g2d, "Start Multiplayer Game", WIDTH / 2 + 100, currentY, 250, 60, () -> { // Adjusted position
+            currentY = HEIGHT - 150; // Position buttons vertically to avoid overlap
+            drawButton(g2d, "Start Multiplayer Game", WIDTH / 2, currentY, 250, 60, () -> {
                 initGame();
                 // Fewer initial asteroids for multiplayer, especially on easy
                 int initialAsteroidsMultiplayer = 5;
@@ -489,8 +488,13 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 state = GameState.MULTIPLAYER_PLAYING;
                 gameStartTime = System.currentTimeMillis(); // Record game start time
             });
+
+            currentY += 80; // Gap below start button
+            drawButton(g2d, "Back to Main Menu", WIDTH / 2, currentY, 200, 40, () -> state = GameState.START);
+
             drawButton(g2d, "Back to Main Menu", WIDTH / 2 - 150, currentY, 200, 40, () -> state = GameState.START); // Adjusted
                                                                                                                      // position
+
 
         } else if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING
                 || state == GameState.ML_PLAYING) {
@@ -933,7 +937,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             // Shooting logic for Player 1 (triggered by single press, applies to both Human
             // and AI)
             if (shootRequested1) {
-                if (!reloading1 && currentBullets1 > 0 && (now - lastShotTime1 > BULLET_COOLDOWN)) {
+                if (!reloading1 && currentBullets1 > 0) {
                     bullets.add(new Bullet(ship1));
                     currentBullets1--;
                     bulletsFired++; // Increment bullets fired
@@ -991,7 +995,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
 
                 // Shooting logic for Player 2 (triggered by single press)
                 if (shootRequested2) {
-                    if (!reloading2 && currentBullets2 > 0 && (now - lastShotTime2 > BULLET_COOLDOWN)) {
+                    if (!reloading2 && currentBullets2 > 0) {
                         bullets.add(new Bullet(ship2));
                         currentBullets2--;
                         bulletsFired++; // Increment bullets fired
