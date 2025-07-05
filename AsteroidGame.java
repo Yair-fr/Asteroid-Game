@@ -351,6 +351,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 gameStartTime = System.currentTimeMillis(); // Record game start time
             });
 
+
             // Multiplayer button
             drawButton(g2d, "Multiplayer", WIDTH / 2, initialY + spacing, buttonWidth, buttonHeight,
                     () -> state = GameState.MULTIPLAYER_SETUP_NAMES);
@@ -372,6 +373,13 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             // new Font("Arial", Font.PLAIN, 20), scoreY + (i * 25));
             // }
 
+            // Button to select difficulty
+            drawButton(g2d, "Difficulty: " + initialDifficulty + " (Click to Change)", WIDTH / 2,
+                    initialY + spacing, buttonWidth, smallButtonHeight, this::showDifficultySelection);
+
+            // Button to view high scores
+            drawButton(g2d, "View All Scores", WIDTH / 2, initialY + 2 * spacing, (int) (250 * 0.8),
+                    smallButtonHeight, this::showAllHighScores);
             // Button to view high scores
             drawButton(g2d, "View All Scores", WIDTH / 2, initialY + 2 * spacing, (int) (250 * 0.8), smallButtonHeight,
                     this::showAllHighScores);
@@ -379,6 +387,8 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             g2d.setFont(new Font("Arial", Font.PLAIN, 16));
             drawCenteredString(g2d, "Yair FR©", new Font("Arial", Font.PLAIN, 16), HEIGHT - 20); // Copyright at bottom
                                                                                                  // middle
+
+        } else if (state == GameState.PLAYING_SINGLE || state == GameState.ML_PLAYING) {
 
         } else if (state == GameState.MULTIPLAYER_SETUP_NAMES) {
             int currentY = 70; // Start Y for "Multiplayer Setup" title
@@ -499,9 +509,6 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         } else if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING
                 || state == GameState.ML_PLAYING) {
             ship1.draw(g2d);
-            if (state == GameState.MULTIPLAYER_PLAYING) {
-                ship2.draw(g2d);
-            }
 
             for (Bullet b : bullets)
                 b.draw(g2d);
@@ -555,9 +562,6 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             }
 
             // UI elements for Player 2 (top right) in multiplayer mode
-            if (state == GameState.MULTIPLAYER_PLAYING) {
-                g2d.drawString("Lives (" + userName2 + "): " + lives2, WIDTH - 150, 40);
-            }
 
             // Positioned at bottom middle for both players
             int uiBottomY = HEIGHT - 20; // Slightly above bottom edge
@@ -567,11 +571,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             int barOffset = 30; // Distance from bottom for bars
 
             int player1SectionWidth = barWidth * 2 + 50; // Width for shield bar + bullet bar + gap
-            int player2SectionWidth = barWidth * 2 + 50;
             int totalUIWidth = player1SectionWidth;
-            if (state == GameState.MULTIPLAYER_PLAYING) {
-                totalUIWidth += player2SectionWidth + 80; // Add space between player sections
-            }
             int startX = (WIDTH - totalUIWidth) / 2;
 
             int shield1X = startX; // Renamed
@@ -646,75 +646,6 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             }
             // Removed the incremental reload message (purple message) for Player 1
 
-            // UI for Player 2 in multiplayer mode
-            if (state == GameState.MULTIPLAYER_PLAYING) {
-                int shield2X = bullets1X + barWidth + 80; // Adjusted spacing between player sections (Renamed)
-                int bullets2X = shield2X + barWidth + 50;
-
-                // Draw Shield bar for Player 2 (Renamed)
-                g2d.setColor(Color.WHITE);
-                g2d.drawString("Shield:", shield2X, uiBottomY - labelOffset); // Removed player name
-                double shieldProgress2; // Renamed
-                if (shieldActive2) { // Renamed
-                    shieldProgress2 = 1.0
-                            - (double) (System.currentTimeMillis() - shieldActivationTime2) / SHIELD_ACTIVE_DURATION; // Renamed
-                } else {
-                    long timeToRefill = shieldRefillTime2 - System.currentTimeMillis(); // Renamed
-                    if (timeToRefill <= 0) {
-                        shieldProgress2 = 1.0;
-                    } else {
-                        shieldProgress2 = 1.0 - (double) timeToRefill / SHIELD_RECHARGE_DURATION; // Renamed
-                    }
-                }
-                if (shieldProgress2 < 0)
-                    shieldProgress2 = 0;
-                if (shieldProgress2 > 1)
-                    shieldProgress2 = 1;
-
-                g2d.setColor(Color.DARK_GRAY);
-                g2d.fillRect(shield2X, uiBottomY - barOffset, barWidth, barHeight);
-
-                g2d.setColor(Color.CYAN);
-                g2d.fillRect(shield2X, uiBottomY - barOffset, (int) (barWidth * shieldProgress2), barHeight);
-                g2d.setColor(Color.YELLOW);
-                g2d.drawRect(shield2X, uiBottomY - barOffset, barWidth, barHeight);
-
-                // Draw refuel message if recharging for Player 2
-                if (!shieldActive2 && System.currentTimeMillis() < shieldRefillTime2) { // Renamed
-                    g2d.setColor(Color.ORANGE);
-                    String msg = "Recharging...";
-                    FontMetrics fm = g2d.getFontMetrics();
-                    int msgX = shield2X + (barWidth - fm.stringWidth(msg)) / 2;
-                    int msgY = uiBottomY - barOffset + barHeight / 2 + fm.getAscent() / 2;
-                    g2d.drawString(msg, msgX, msgY);
-                }
-
-                // Draw Bullets display for Player 2
-                g2d.setColor(Color.WHITE);
-                g2d.drawString("Bullets: " + currentBullets2 + "/" + MAX_BULLETS, bullets2X, uiBottomY - labelOffset); // Removed
-                                                                                                                       // player
-                                                                                                                       // name
-
-                g2d.setColor(Color.DARK_GRAY);
-                g2d.fillRect(bullets2X, uiBottomY - barOffset, barWidth, barHeight);
-
-                double bulletReloadProgress2 = (double) currentBullets2 / MAX_BULLETS;
-                g2d.setColor(Color.GREEN.darker());
-                g2d.fillRect(bullets2X, uiBottomY - barOffset, (int) (barWidth * bulletReloadProgress2), barHeight);
-                g2d.setColor(Color.YELLOW);
-                g2d.drawRect(bullets2X, uiBottomY - barOffset, barWidth, barHeight);
-
-                // Draw reload message if reloading for Player 2
-                if (reloading2) {
-                    g2d.setColor(Color.RED);
-                    String msg = "Reloading (Full)...";
-                    FontMetrics fm = g2d.getFontMetrics();
-                    int msgX = bullets2X + (barWidth - fm.stringWidth(msg)) / 2;
-                    int msgY = uiBottomY - barOffset + barHeight / 2 + fm.getAscent() / 2;
-                    g2d.drawString(msg, msgX, msgY);
-                }
-                // Removed the incremental reload message (purple message) for Player 2
-            }
 
         } else if (state == GameState.GAME_OVER) {
             drawCenteredString(g2d, "GAME OVER", new Font("Arial", Font.BOLD, 48), HEIGHT / 3);
@@ -890,8 +821,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     public void actionPerformed(ActionEvent e) {
         long now = System.currentTimeMillis();
 
-        if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING
-                || state == GameState.ML_PLAYING) {
+        if (state == GameState.PLAYING_SINGLE || state == GameState.ML_PLAYING) {
             // --- Player 1 (Human or AI) Logic ---
             // Process AI input for Player 1 if in ML_PLAYING state
             if (state == GameState.ML_PLAYING) {
@@ -974,6 +904,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             // Pass ship speed reduction factor if shield is active
             ship1.update(up1, left1, right1, shieldActive1, SHIP_SPEED_REDUCTION_FACTOR, WIDTH, HEIGHT);
 
+
             // --- Player 2 Logic (if multiplayer) ---
             if (state == GameState.MULTIPLAYER_PLAYING) {
                 // Passive reload for Player 2
@@ -1039,7 +970,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
 
             // Determine asteroid speed multiplier based on shield active status OR Freeze
             double currentAsteroidSpeedMultiplier = 1.0; // Default to normal speed
-            if (shieldActive1 || shieldActive2) { // Check both players for slowdown effect
+            if (shieldActive1) { // Slow down asteroids when shield is active
                 currentAsteroidSpeedMultiplier = ASTEROID_SLOWDOWN_MULTIPLIER;
             }
             if (now < freezeEndTime) { // If Freeze is active, override speed to 0 (or very close to 0)
@@ -1064,10 +995,6 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
 
                 if (powerUp.getBounds().intersects(ship1.getBounds())) {
                     applyPowerUpEffect(powerUp.type, ship1); // Apply effect for Player 1
-                    powerUpIterator.remove(); // Remove power-up after collection
-                } else if (state == GameState.MULTIPLAYER_PLAYING
-                        && powerUp.getBounds().intersects(ship2.getBounds())) {
-                    applyPowerUpEffect(powerUp.type, ship2); // Apply effect for Player 2
                     powerUpIterator.remove(); // Remove power-up after collection
                 }
             }
@@ -1103,8 +1030,6 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
 
             if (state == GameState.PLAYING_SINGLE) {
                 checkCollisionsSinglePlayer();
-            } else if (state == GameState.MULTIPLAYER_PLAYING) {
-                checkCollisionsMultiplayer();
             } else { // ML_PLAYING
                 checkCollisionsMLPlayer();
             }
@@ -1156,12 +1081,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
             }
 
             // Check for game over (multiplayer condition)
-            if (state == GameState.MULTIPLAYER_PLAYING && lives1 <= 0 && lives2 <= 0) {
-                gameEndTime = now; // Record game end time
-                lastPlayedState = state; // Store current state before GAME_OVER
-                state = GameState.GAME_OVER;
-                saveOrUpdateHighScore(userName1, score, initialDifficulty, false, null); // Human player
-            } else if (state == GameState.PLAYING_SINGLE && lives1 <= 0) {
+            if (state == GameState.PLAYING_SINGLE && lives1 <= 0) {
                 gameEndTime = now; // Record game end time
                 lastPlayedState = state; // Store current state before GAME_OVER
                 state = GameState.GAME_OVER;
@@ -1189,6 +1109,8 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                                                                                                                 // to
                                                                                                                 // Jarvis
             }
+
+        } else if (state == GameState.START) {
 
         } else if (state == GameState.START || state == GameState.MULTIPLAYER_SETUP_NAMES) {
             // Update stars movement only on start screen and setup screens
@@ -1237,8 +1159,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     public void keyPressed(KeyEvent e) {
         int keyCode = e.getKeyCode();
         // Key presses for both human players and AI in ML_PLAYING state
-        if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING
-                || state == GameState.ML_PLAYING) {
+        if (state == GameState.PLAYING_SINGLE || state == GameState.ML_PLAYING) {
             // Player 1 Controls (Human or AI in ML_PLAYING)
             switch (keyCode) {
                 case KeyEvent.VK_UP -> up1 = true;
@@ -1260,28 +1181,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 }
             }
 
-            // Player 2 Controls (only in multiplayer)
-            if (state == GameState.MULTIPLAYER_PLAYING) {
-                switch (keyCode) {
-                    case KeyEvent.VK_W -> up2 = true;
-                    case KeyEvent.VK_A -> left2 = true;
-                    case KeyEvent.VK_D -> right2 = true;
-                }
-                // Handle shoot key press for single shot
-                if (keyCode == player2ShootKey) {
-                    if (!player2ShootKeyHeld) {
-                        shootRequested2 = true;
-                        player2ShootKeyHeld = true;
-                    }
-                }
-                // Handle shield key press for single activation
-                if (keyCode == player2ShieldKey) { // Renamed player2HyperspaceKey
-                    if (!player2ShieldKeyHeld) { // Renamed player2HyperspaceKeyHeld
-                        shieldRequested2 = true; // Renamed
-                        player2ShieldKeyHeld = true; // Renamed
-                    }
-                }
-            }
+            // Multiplayer controls removed
         }
 
         // State transitions
@@ -1293,16 +1193,6 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                     lives1 = jarvisLivesInput; // Set AI lives back to configured value on restart
                     spawnAsteroids(7); // Restart ML mode with appropriate asteroids
                     state = GameState.ML_PLAYING;
-                } else if (lastPlayedState == GameState.MULTIPLAYER_PLAYING) {
-                    // Fewer initial asteroids for multiplayer quick play, especially on easy
-                    int initialAsteroidsMultiplayer = 5;
-                    if (initialDifficulty <= 2) { // For Easy/Very Easy
-                        initialAsteroidsMultiplayer = 3;
-                    } else if (initialDifficulty <= 5) { // For Normal
-                        initialAsteroidsMultiplayer = 4;
-                    }
-                    spawnAsteroids(initialAsteroidsMultiplayer); // Restart multiplayer with appropriate asteroids
-                    state = GameState.MULTIPLAYER_PLAYING;
                 } else { // Default to single player if lastPlayedState is unknown or single player
                     // Fewer initial asteroids for single player, especially on easy
                     int initialAsteroidsSinglePlayer = 3;
@@ -1328,8 +1218,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
     public void keyReleased(KeyEvent e) {
         int keyCode = e.getKeyCode();
         // Key releases for both human players and AI in ML_PLAYING state
-        if (state == GameState.PLAYING_SINGLE || state == GameState.MULTIPLAYER_PLAYING
-                || state == GameState.ML_PLAYING) {
+        if (state == GameState.PLAYING_SINGLE || state == GameState.ML_PLAYING) {
             // Player 1 Controls
             switch (keyCode) {
                 case KeyEvent.VK_UP -> up1 = false;
@@ -1344,21 +1233,7 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
                 player1ShieldKeyHeld = false; // Renamed player1HyperspaceKeyHeld
             }
 
-            // Player 2 Controls
-            if (state == GameState.MULTIPLAYER_PLAYING) {
-                switch (keyCode) {
-                    case KeyEvent.VK_W -> up2 = false;
-                    case KeyEvent.VK_A -> left2 = false;
-                    case KeyEvent.VK_D -> right2 = false;
-                }
-                // Reset key held flags on release
-                if (keyCode == player2ShootKey) {
-                    player2ShootKeyHeld = false;
-                }
-                if (keyCode == player2ShieldKey) { // Renamed player2HyperspaceKey
-                    player2ShieldKeyHeld = false; // Renamed player2HyperspaceKeyHeld
-                }
-            }
+            // Multiplayer controls removed
         }
     }
 
@@ -1859,13 +1734,6 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
         sb.append(String.format("Player 1 Total Shield Duration: %.2f seconds\n", totalShieldDuration1 / 1000.0)); // Renamed
         sb.append(String.format("Player 1 Estimated Shield Cost: %d units\n", totalShieldCost1)); // Renamed
 
-        // Shield Activations for Player 2 (if multiplayer) (Renamed)
-        if (lastPlayedState == GameState.MULTIPLAYER_PLAYING) {
-            long totalShieldCost2 = (long) totalShieldActivations2 * SHIELD_COST_PER_ACTIVATION; // Renamed
-            sb.append(String.format("Player 2 Shield Activations: %d\n", totalShieldActivations2)); // Renamed
-            sb.append(String.format("Player 2 Total Shield Duration: %.2f seconds\n", totalShieldDuration2 / 1000.0)); // Renamed
-            sb.append(String.format("Player 2 Estimated Shield Cost: %d units\n", totalShieldCost2)); // Renamed
-        }
 
         JTextArea textArea = new JTextArea(sb.toString());
         textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
@@ -1880,8 +1748,11 @@ public class AsteroidGame extends JPanel implements ActionListener, KeyListener,
      * Enum to define the different states of the game.
      */
     enum GameState {
+        START, PLAYING_SINGLE, ML_PLAYING, GAME_OVER
+
         START, PLAYING_SINGLE, MULTIPLAYER_SETUP_NAMES, MULTIPLAYER_PLAYING, ML_PLAYING,
         GAME_OVER
+
     }
 
     // MouseListener implementations for button clicks
