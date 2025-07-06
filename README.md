@@ -3,8 +3,6 @@
 Welcome to the **Asteroid Game**, a classic arcade-style space shooter developed in Java Swing! Navigate your spaceship through perilous asteroid fields, blast obstacles, collect power-ups, and aim for the high score.
 
 This enhanced version introduces:
-- Multiplayer mode
-- Ship customization
 - Advanced power-ups
 - Dynamic difficulty and performance stats
 
@@ -17,9 +15,6 @@ This enhanced version introduces:
 
 ### 🔹 Multiplayer Mode (Local)
 - **Customizable Names & Controls**: Personalize player names and key bindings.
-- **Co-op Gameplay**: Survive together with a friend.
-- **Ship-to-Ship Interaction**: Push each other without damage.
-
 
 ### ✨ Power-Ups
 - **Freeze (❄️)**: Appears every 100 points. Freezes all asteroids for 2 seconds.
