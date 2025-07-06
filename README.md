@@ -6,7 +6,7 @@ Welcome to the **Asteroid Game**, a classic arcade-style space shooter developed
 
 To get started, you can download the latest executable version of the game:
 
-[Download AsteroidGame.exe](dist/AsteroidGame-ver-2.exe)
+Download [AsteroidGame.exe](AsteroidGame-ver-2.exe)
 
 This enhanced version introduces:
 - Advanced power-ups
