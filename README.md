@@ -63,6 +63,7 @@ javac AsteroidGame.java
 ```
 ### Playing
 - Launch `AsteroidGame` and use the **Difficulty** button on the main menu to choose a level before starting.
+- Or click the .exe file to run.
 
 ### Distribution
 This project is written for Java Swing, so it cannot be directly packaged as an Android `.apk` without a full port to Android APIs.
