@@ -19,9 +19,6 @@ This enhanced version introduces:
 ### 🔹 Single-Player Mode
 - Face continuous waves of asteroids with increasing difficulty.
 
-### 🔹 Multiplayer Mode (Local)
-- **Customizable Names & Controls**: Personalize player names and key bindings.
-
 ### ✨ Power-Ups
 - **Freeze (❄️)**: Appears every 100 points. Freezes all asteroids for 2 seconds.
 - **AtomBOOM (☢️)**: Appears every 200 points. Creates a blast clearing nearby asteroids.
