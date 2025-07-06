@@ -11,7 +11,12 @@ Download [AsteroidGame.exe](AsteroidGame-ver-2.exe)
 ![image](https://github.com/user-attachments/assets/bd62caad-2b2e-4358-87f7-cce1c54dcb0f)
 ![image](https://github.com/user-attachments/assets/4ac77496-7109-4940-be21-4932106e7c6c)
 
-
+## How to Play
+- Left `←`
+- Right `→`
+- Up`↑`
+- Shield `H`
+- Shoot `space`
 
 This enhanced version introduces:
 - Advanced power-ups
