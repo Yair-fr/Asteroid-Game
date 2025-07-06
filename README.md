@@ -2,6 +2,12 @@
 
 Welcome to the **Asteroid Game**, a classic arcade-style space shooter developed in Java Swing! Navigate your spaceship through perilous asteroid fields, blast obstacles, collect power-ups, and aim for the high score.
 
+## Download and Play
+
+To get started, you can download the latest executable version of the game:
+
+[Download AsteroidGame.exe](dist/AsteroidGame-ver-2.exe)
+
 This enhanced version introduces:
 - Advanced power-ups
 - Dynamic difficulty and performance stats
